@@ -1,6 +1,10 @@
 
 import './style.css'
 
+const HOME_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></svg>`
+
+const MENU_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>`
+
 const hotels = [
   { name: 'Морская тишина', stars: 4, location: 'Сочи · Мамайка', distance: '3 минуты до моря', price: 12800, rating: 9.4, reviews: 286, pool: true, beach: true, image: 'https://images.unsplash.com/photo-1571896349842-33c89424de2d?auto=format&fit=crop&w=900&q=85' },
   { name: 'Сад у моря', stars: 5, location: 'Сочи · Хоста', distance: '5 минут до моря', price: 14200, rating: 9.2, reviews: 412, pool: true, beach: true, image: 'https://images.unsplash.com/photo-1575429198097-0414ec08e8cd?auto=format&fit=crop&w=900&q=85' },
@@ -20,8 +24,18 @@ document.querySelector('#app').innerHTML = `
   </header>
 
   <main class="layout">
-    <aside class="sidebar">
-      <p class="eyebrow">ВАШИ ПОЕЗДКИ</p>
+        <aside class="sidebar" id="sidebar">
+      <div class="sidebar-rail">
+                <button class="rail-btn" title="Ваши поездки" aria-label="Развернуть «Ваши поездки»">${MENU_ICON}</button>
+        <button class="rail-btn home-btn" title="Показать отели" aria-label="Показать отели">${HOME_ICON}</button>
+      </div>
+            <div class="sidebar-head">
+        <div class="sidebar-actions">
+          <button class="sidebar-toggle" id="sidebar-toggle" title="Свернуть">»</button>
+          <button class="sidebar-toggle home-btn" title="Показать отели" aria-label="Показать отели">${HOME_ICON}</button>
+        </div>
+        <p class="eyebrow">ВАШИ ПОЕЗДКИ</p>
+      </div>
       <button class="trip active">☀ Сентябрь у моря<small>Сочи · 14–19 сентября</small></button>
       <button class="trip">Выходные в Казани<small>Вчера</small></button>
       <button class="trip">Петербург вдвоём<small>21 августа</small></button>
@@ -30,7 +44,6 @@ document.querySelector('#app').innerHTML = `
     <section class="assistant panel">
       <div class="section-head">
         <div><h2>Сентябрь у моря</h2><p class="muted">Ваши пожелания — наш маршрут</p></div>
-        <span>•••</span>
       </div>
       <div class="chat" id="chat">
         <div class="bubble user">Хочу в Сочи вдвоём на 14–19 сентября. Нужен тихий отель у моря, с завтраками. До 15 000 ₽ за ночь.</div>
@@ -52,9 +65,11 @@ document.querySelector('#app').innerHTML = `
       <p class="fineprint">ИИ помогает выбрать. Решение всегда за вами.</p>
     </section>
 
-    <section class="results">
-      <p class="eyebrow">ВАША СЛЕДУЮЩАЯ ИСТОРИЯ</p>
-      <h1>Пять дней на берегу моря</h1>
+        <section class="results" id="results" title="">
+      <div class="results-head">
+        <button class="results-toggle" id="results-toggle" title="Свернуть">»</button>
+        <h1>Пять дней на берегу моря</h1>
+      </div>
       <div class="search-summary">
         <span>◎ <small>Куда</small><b>Сочи, Россия</b></span>
         <span>▦ <small>Даты</small><b>14–19 сентября · 5 ночей</b></span>
@@ -192,4 +207,72 @@ document.querySelector('#reset').addEventListener('click', () => {
   document.querySelector('#price-filter').classList.add('selected')
   document.querySelector('#price-filter').textContent = 'До 15 000 ₽ / ночь'
   toast('Начните планировать новую поездку!')
+})
+
+const layout = document.querySelector('.layout')
+const sidebar = document.querySelector('#sidebar')
+const results = document.querySelector('#results')
+const DURATION = 500
+
+document.querySelector('#sidebar-toggle').addEventListener('click', e => {
+  e.stopPropagation()
+  sidebar.classList.add('collapsed')
+  sidebar.title = 'Развернуть'
+})
+
+sidebar.addEventListener('click', () => {
+  if (!sidebar.classList.contains('collapsed')) return
+  sidebar.classList.remove('collapsed')
+  sidebar.removeAttribute('title')
+})
+
+let resultsBusy = false
+
+function animateResults(collapse) {
+  if (resultsBusy || results.classList.contains('collapsed') === collapse) return
+  resultsBusy = true
+
+  const columns = () => getComputedStyle(layout).gridTemplateColumns
+  layout.style.transition = 'none' // чтобы браузер не начал свою анимацию раньше времени
+  const from = columns()
+  results.classList.toggle('collapsed', collapse)
+  const to = columns()
+
+  if (from === to) {
+    layout.style.transition = ''
+    resultsBusy = false
+    return
+  }
+
+  const finalWidth = parseFloat(to.split(' ')[2]) || 0
+  results.classList.remove('collapsed')
+  results.style.setProperty('--frozen-w', `${collapse ? results.offsetWidth : finalWidth}px`)
+  results.classList.add('animating')
+
+  layout.style.gridTemplateColumns = from
+  layout.offsetWidth
+  layout.style.transition = ''
+  layout.style.gridTemplateColumns = to
+
+  setTimeout(() => {
+    results.classList.toggle('collapsed', collapse)
+    results.classList.remove('animating')
+    layout.style.gridTemplateColumns = ''
+    resultsBusy = false
+  }, DURATION)
+}
+
+document.querySelector('#results-toggle').addEventListener('click', () => animateResults(true))
+
+document.querySelectorAll('.home-btn').forEach(button => {
+  button.addEventListener('click', e => {
+    e.stopPropagation()
+    animateResults(!results.classList.contains('collapsed'))
+  })
+})
+
+matchMedia('(max-width: 650px)').addEventListener('change', e => {
+  if (!e.matches) return
+  sidebar.classList.remove('collapsed')
+  results.classList.remove('collapsed')
 })
