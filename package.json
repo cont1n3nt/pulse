@@ -1,12 +1,12 @@
 {
-  "name": "tiho",
+  "name": "pulse-frontend",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "vite frontend --host 0.0.0.0",
+    "build": "vite build frontend",
+    "preview": "vite preview frontend"
   },
   "devDependencies": {
     "vite": "^8.3.4"

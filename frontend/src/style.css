@@ -1,0 +1,17 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #183b36;
+  background: #f4f3ee;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; }
+.status-card { width: min(100%, 480px); padding: 36px; background: white; border: 1px solid #e1e5df; border-radius: 18px; box-shadow: 0 16px 48px #183b3612; }
+.eyebrow { color: #68827b; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+h1 { margin: 28px 0 12px; font-size: clamp(30px, 8vw, 44px); font-weight: 600; }
+#status { min-height: 24px; color: #89652d; }
+#status.healthy { color: #277353; }
+#status.unhealthy { color: #a14242; }
+code { display: inline-block; margin-top: 20px; padding: 9px 12px; border-radius: 8px; background: #f1f4f0; font-size: 13px; }
