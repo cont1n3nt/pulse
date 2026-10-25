@@ -78,3 +78,5 @@ uv sync
 cp .env.example .env    # вписать ключи (LLM_API_KEY, TRAVELPAYOUTS_TOKEN)
 uv run python -m docs.cli
 ```
+
+Без uv: `python -m pip install -r requirements.txt`, затем `python -m docs.cli`.
