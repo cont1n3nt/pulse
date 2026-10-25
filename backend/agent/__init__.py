@@ -1,6 +1,6 @@
 """Публичный интерфейс агента. Бэк импортирует ТОЛЬКО отсюда:
 
-    from agent import handle_message, get_state, AgentResponse, ChatRequest, TripState
+    from backend.agent import handle_message, get_state, AgentResponse, ChatRequest, TripState
 """
 
 from .contracts import AgentResponse, Block, ChatRequest, TripState

@@ -38,7 +38,7 @@ def search_flights(origin: str, destination: str, departure: str,
     lines = [
         f"[{f.id}] {f.carrier_name} {f.number}: {f.from_airport}→{f.to_airport}, "
         f"вылет {f.depart_at:%d.%m %H:%M}, в пути {f.duration_min // 60}ч{f.duration_min % 60:02d}м, "
-        f"пересадок {f.transfers}, {f.price_rub} ₽"
+        f"пересадок {f.transfers}, {f'{f.price_rub} ₽' if f.price_rub is not None else 'цена неизвестна'}"
         for f in flights
     ]
     content = "Найдено (багаж не гарантирован):\n" + "\n".join(lines)

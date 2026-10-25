@@ -1,23 +1,17 @@
 [project]
 name = "pulse"
 version = "0.1.0"
-description = "Add your description here"
+description = "Pulse: тревел-агент (поиск авиабилетов) на FastAPI и LangChain"
 readme = "README.md"
 authors = [
     { name = "cont1n3nt", email = "82307344+cont1n3nt@users.noreply.github.com" }
 ]
 requires-python = ">=3.11"
 dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
     "langchain[openai]>=1.4.7",
-    "langchain-google-genai>=4.4.2",
+    "langgraph",
     "python-dotenv>=1.2.4",
     "requests>=2.34.2",
-    "deepagents>=0.7.32",
 ]
-
-[project.scripts]
-pulse = "pulse:main"
-
-[build-system]
-requires = ["uv_build>=0.12.19,<0.13.0"]
-build-backend = "uv_build"

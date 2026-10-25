@@ -1,11 +1,11 @@
 """
-    uv add fastapi uvicorn
-    uv run uvicorn api_example:app --port 8080
+Из корня проекта:
+    uv run uvicorn docs.api_example:app --port 8080
 """
 
 from fastapi import FastAPI
 
-from agent import AgentResponse, ChatRequest, TripState, get_state, handle_message
+from backend.agent import AgentResponse, ChatRequest, TripState, get_state, handle_message
 
 app = FastAPI()
 

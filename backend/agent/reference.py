@@ -1,13 +1,14 @@
 import json
-from functools import lru_cache
+import logging
 
 import requests
 
 from .config import HTTP_TIMEOUT, SEED_DIR
 
+log = logging.getLogger(__name__)
+
 
 def _load(name: str) -> list[dict]:
-    SEED_DIR.mkdir(parents=True, exist_ok=True)
     path = SEED_DIR / f"{name}_ru.json"
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
@@ -15,20 +16,33 @@ def _load(name: str) -> list[dict]:
         resp = requests.get(f"https://api.travelpayouts.com/data/ru/{name}.json", timeout=HTTP_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
-        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        return data
-    except requests.RequestException:
+    except (requests.RequestException, ValueError):
+        # Не кэшируем пустой результат навсегда: при сбое сети следующий вызов попробует снова.
+        log.warning("Не удалось загрузить справочник %s, используется запасной список", name)
         return []
+    SEED_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return data
 
 
-@lru_cache
+_CACHE: dict[str, list[dict]] = {}
+
+
+def _cached(name: str) -> list[dict]:
+    if name not in _CACHE:
+        data = _load(name)
+        if not data:
+            return data
+        _CACHE[name] = data
+    return _CACHE[name]
+
+
 def cities() -> list[dict]:
-    return _load("cities")
+    return _cached("cities")
 
 
-@lru_cache
 def airlines() -> dict[str, str]:
-    return {a["code"]: a.get("name") or a["code"] for a in _load("airlines") if a.get("code")}
+    return {a["code"]: a.get("name") or a["code"] for a in _cached("airlines") if a.get("code")}
 
 
 def _norm(text: str) -> str:

@@ -19,7 +19,7 @@ class FlightOption(BaseModel):
     arrive_at: datetime
     duration_min: int
     transfers: int
-    price_rub: int | ModuleNotFoundError
+    price_rub: int | None = None
     baggage_included: bool | None = None
     link: str | None = None
 
