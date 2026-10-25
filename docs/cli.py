@@ -1,8 +1,9 @@
 """
-uv run cli.py
+Из корня проекта:
+    uv run python -m docs.cli
 """
 
-from agent import handle_message
+from backend.agent import handle_message
 
 SESSION = "terminal"
 

@@ -1,17 +1,28 @@
+import logging
 import threading
 from functools import lru_cache
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import dynamic_prompt
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from .config import make_llm
+from .config import AGENT_RECURSION_LIMIT, make_llm
 from .contracts import AgentResponse, Block, FlightOption, TripState
 from .prompts import system_prompt
 from .tools.flights import TOOLS
 
+log = logging.getLogger(__name__)
+
 _STATES: dict[str, TripState] = {}
+_SESSION_LOCKS: dict[str, threading.Lock] = {}
 _LOCK = threading.Lock()
+
+
+@dynamic_prompt
+def _prompt(request) -> str:
+    # Вызывается на каждый запрос, поэтому дата в промпте всегда актуальна.
+    return system_prompt()
 
 
 @lru_cache
@@ -19,9 +30,14 @@ def _agent():
     return create_agent(
         model=make_llm(),
         tools=TOOLS,
-        system_prompt=system_prompt(),
+        middleware=[_prompt],
         checkpointer=InMemorySaver(),
     )
+
+
+def _session_lock(session_id: str) -> threading.Lock:
+    with _LOCK:
+        return _SESSION_LOCKS.setdefault(session_id, threading.Lock())
 
 
 def _text(msg) -> str:
@@ -39,19 +55,23 @@ def get_state(session_id: str) -> TripState:
 def reset_session(session_id: str) -> None:
     with _LOCK:
         _STATES.pop(session_id, None)
+        _SESSION_LOCKS.pop(session_id, None)
 
 
 def handle_message(session_id: str, text: str) -> AgentResponse:
     state = get_state(session_id)
-    config = {"configurable": {"thread_id": session_id}}
+    config = {"configurable": {"thread_id": session_id}, "recursion_limit": AGENT_RECURSION_LIMIT}
 
     try:
-        result = _agent().invoke({"messages": [{"role": "user", "content": text}]}, config)
-    except Exception as exc:
+        # Один запрос на сессию за раз: параллельные сообщения иначе затрут state друг друга.
+        with _session_lock(session_id):
+            result = _agent().invoke({"messages": [{"role": "user", "content": text}]}, config)
+    except Exception:
+        log.exception("Агент упал на сессии %s", session_id)
         return AgentResponse(
             session_id=session_id,
             message="Не получилось обработать запрос, попробуйте ещё раз.",
-            blocks=[Block(type="error", data={"detail": f"{type(exc).__name__}: {exc}"})],
+            blocks=[Block(type="error", data={"detail": "agent_failed"})],
             state=state,
         )
 
