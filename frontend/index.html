@@ -7,19 +7,199 @@
     <title>Тихо — отели для спокойного отдыха</title>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:wght@400;500;600&display=swap');
-      :root{font-family:Manrope,sans-serif;color:#293f3e;background:#f4f3ee;font-synthesis:none;text-rendering:optimizeLegibility;font-optical-sizing:auto;font-weight:400}*{box-sizing:border-box}body{margin:0}button,textarea{font:inherit}button{cursor:default}.topbar{height:64px;background:#fff;display:flex;align-items:center;padding:0 28px;gap:24px;border-bottom:1px solid #e9e7e0}.logo{font-size:24px;font-weight:800;color:#245f5d;text-decoration:none}.logo sup{font-size:12px}.tagline{color:#8b9691;font-size:12px;flex:1}.outline,.chip,.text-button{border:1px solid #d8e1dc;border-radius:9px;padding:9px 12px;background:white;color:#315f5b;font-size:12px}.layout{display:grid;grid-template-columns:180px 350px minmax(0,1fr);gap:20px;max-width:1600px;margin:auto;padding:22px}.sidebar{border-right:1px solid #e8e6df;padding-right:12px}.eyebrow{font-size:9px;letter-spacing:.06em;color:#8b9691;margin:4px 0 12px}.trip{display:block;width:100%;border:0;background:transparent;text-align:left;padding:12px 10px;border-radius:10px;color:#405653;font-size:12px;margin-bottom:8px}.trip.active{background:#e4eeea}.trip small{display:block;margin-top:5px;color:#7c8d87;font-size:10px}.panel{background:#fffdfa;border:1px solid #e9e6de;border-radius:17px;padding:17px}.section-head{display:flex;justify-content:space-between;border-bottom:1px solid #eceae3;padding-bottom:13px}.section-head h2{font:20px 'Playfair Display',serif;margin:0 0 4px}.muted{color:#84918b;font-size:11px}.section-head p{margin:0;font-size:10px}.chat{padding:12px 0;font-size:12px;line-height:1.65}.bubble{border-radius:12px;padding:13px;margin:12px 0;font-size:12px;line-height:1.6}.bubble.user{background:#eceee7}.bot-label{font-size:10px;color:#347873;font-weight:700;margin-top:10px}.suggestions{display:flex;flex-wrap:wrap;gap:5px;margin:12px 0}.chip{padding:7px 9px;font-size:10px}.chip.selected{background:#e1eeea;border-color:#a7c7be}.chat-form{position:relative;border:1px solid #6a9b94;border-radius:10px;padding:10px}.chat-form textarea{border:0;outline:0;resize:none;width:100%;background:transparent;font-size:12px;color:inherit}.send{display:block;margin-left:auto;background:#286a65;color:white;border:0;border-radius:7px;width:30px;height:30px}.fineprint{color:#9aa39e;font-size:9px}.assistant>.fineprint{text-align:center}.results{min-width:0}.results h1{font:30px 'Playfair Display',serif;margin:0 0 15px}.search-summary{display:flex;flex-wrap:wrap;gap:12px;background:#eae9df;border-radius:12px;padding:14px}.search-summary span{flex:1;min-width:110px;font-size:12px}.search-summary small,.search-summary b{display:block;margin-top:4px}.search-summary small{color:#7c8982;font-size:10px}.search-summary b{font-weight:500;font-size:11px}.filters{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 19px}.result-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}.result-heading h3{font-size:14px;font-weight:500;margin:0}.result-heading h3 span{color:#8b9691;font-size:10px;margin-left:5px}.text-button{border:0;background:transparent}.hotel-list{display:grid;gap:12px}.hotel-card{display:grid;grid-template-columns:37% minmax(0,1fr);background:#fff;border:1px solid #e6e6df;border-radius:15px;overflow:hidden;min-height:190px}.hotel-image{background-size:cover;background-position:center;min-height:190px;position:relative}.photo-count{position:absolute;bottom:10px;left:10px;background:#fff;border-radius:6px;padding:5px 7px;font-size:10px}.hotel-info{padding:12px 14px;position:relative;min-width:0}.hotel-top{display:flex;justify-content:space-between;color:#7b8982;font-size:10px;align-items:center}.heart{border:0;background:none;font-size:22px;color:#73827b}.hotel-info h2{font:22px 'Playfair Display',serif;margin:3px 0 6px}.hotel-info p{margin:5px 0}.features{font-size:10px;color:#557a6e}.hotel-bottom{display:flex;justify-content:space-between;align-items:end;gap:8px;margin-top:12px}.price{font-size:22px;font-weight:700}.hotel-bottom .fineprint{margin:4px 0 0}.rating{text-align:right;font-size:10px}.rating b{background:#e4efeb;padding:7px;border-radius:7px;margin-left:5px}.rating small{display:block;margin-top:5px;color:#8b9691}.choose{float:right;border:0;border-radius:7px;background:#286a65;color:#fff;padding:10px 12px;font-size:10px;margin-top:8px}@media(max-width:1050px){.layout{grid-template-columns:150px minmax(0,1fr)}.results{grid-column:1/-1}}@media(max-width:650px){.topbar{padding:0 14px;gap:12px}.tagline{display:none}.layout{display:flex;flex-direction:column;padding:12px;gap:14px}.sidebar{display:flex;overflow-x:auto;gap:6px;border:0;padding:0}.sidebar .eyebrow{display:none}.trip{min-width:145px}.panel{padding:13px}.results h1{font-size:25px}.hotel-card{grid-template-columns:1fr}.hotel-image{min-height:190px}.hotel-info h2{font-size:20px}}
+      :root{font-family:Manrope,sans-serif;color:#293f3e;background:#f4f3ee;font-synthesis:none;text-rendering:optimizeLegibility;font-optical-sizing:auto;font-weight:400}*{box-sizing:border-box}body{margin:0}button,textarea{font:inherit}button{cursor:default}.topbar{height:64px;background:#fff;display:flex;align-items:center;padding:0 28px;gap:24px;border-bottom:1px solid #e9e7e0}.logo{font-size:24px;font-weight:800;color:#245f5d;text-decoration:none}.logo sup{font-size:12px}.tagline{color:#8b9691;font-size:12px;flex:1}.outline,.chip,.text-button{border:1px solid #d8e1dc;border-radius:9px;padding:9px 12px;background:white;color:#315f5b;font-size:12px}
+      .layout {
+        display: grid;
+        grid-template-columns: 180px 350px minmax(0,1fr);
+        gap: 20px;
+        max-width: 1600px;
+        margin: auto;
+        padding: 22px;
+        transition: grid-template-columns 0.3s ease;
+      }
+
+      .sidebar{border-right:1px solid #e8e6df;padding-right:12px;overflow:hidden;transition:all 0.3s ease;box-sizing:border-box}
+      .eyebrow{font-size:9px;letter-spacing:.06em;color:#8b9691;margin:4px 0 12px}
+      .trip{display:block;width:100%;border:0;background:transparent;text-align:left;padding:12px 10px;border-radius:10px;color:#405653;font-size:12px;margin-bottom:8px}
+      .trip.active{background:#e4eeea}
+      .trip small{display:block;margin-top:5px;color:#7c8d87;font-size:10px}
+      .panel{background:#fffdfa;border:1px solid #e9e6de;border-radius:17px;padding:17px;box-sizing:border-box}
+      .section-head{display:flex;justify-content:space-between;border-bottom:1px solid #eceae3;padding-bottom:13px}
+      .section-head h2{font:20px 'Playfair Display',serif;margin:0 0 4px}
+      .muted{color:#84918b;font-size:11px}
+      .section-head p{margin:0;font-size:10px}
+      .chat{padding:12px 0;font-size:12px;line-height:1.65}
+      .bubble{border-radius:12px;padding:13px;margin:12px 0;font-size:12px;line-height:1.6}
+      .bubble.user{background:#eceee7}
+      .bot-label{font-size:10px;color:#347873;font-weight:700;margin-top:10px}
+      .suggestions{display:flex;flex-wrap:wrap;gap:5px;margin:12px 0}
+      .chip{padding:7px 9px;font-size:10px}
+      .chip.selected{background:#e1eeea;border-color:#a7c7be}
+      .chat-form{position:relative;border:1px solid #6a9b94;border-radius:10px;padding:10px}
+      .chat-form textarea{border:0;outline:0;resize:none;width:100%;background:transparent;font-size:12px;color:inherit}
+      .send{display:block;margin-left:auto;background:#286a65;color:white;border:0;border-radius:7px;width:30px;height:30px}
+      .fineprint{color:#9aa39e;font-size:9px}
+      .assistant>.fineprint{text-align:center}
+
+      .results{min-width:0;overflow:hidden;transition:all 0.3s ease;box-sizing:border-box;position:relative}
+      .results h1{font:30px 'Playfair Display',serif;margin:0 0 15px}
+      .search-summary{display:flex;flex-wrap:wrap;gap:12px;background:#eae9df;border-radius:12px;padding:14px}
+      .search-summary span{flex:1;min-width:110px;font-size:12px}
+      .search-summary small,.search-summary b{display:block;margin-top:4px}
+      .search-summary small{color:#7c8982;font-size:10px}
+      .search-summary b{font-weight:500;font-size:11px}
+      .filters{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 19px}
+      .result-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+      .result-heading h3{font-size:14px;font-weight:500;margin:0}
+      .result-heading h3 span{color:#8b9691;font-size:10px;margin-left:5px}
+      .text-button{border:0;background:transparent}
+      .hotel-list{display:grid;gap:12px}
+      .hotel-card{display:grid;grid-template-columns:37% minmax(0,1fr);background:#fff;border:1px solid #e6e6df;border-radius:15px;overflow:hidden;min-height:190px}
+      .hotel-image{background-size:cover;background-position:center;min-height:190px;position:relative}
+      .photo-count{position:absolute;bottom:10px;left:10px;background:#fff;border-radius:6px;padding:5px 7px;font-size:10px}
+      .hotel-info{padding:12px 14px;position:relative;min-width:0}
+      .hotel-top{display:flex;justify-content:space-between;color:#7b8982;font-size:10px;align-items:center}
+      .heart{border:0;background:none;font-size:22px;color:#73827b}
+      .hotel-info h2{font:22px 'Playfair Display',serif;margin:3px 0 6px}
+      .hotel-info p{margin:5px 0}
+      .features{font-size:10px;color:#557a6e}
+      .hotel-bottom{display:flex;justify-content:space-between;align-items:end;gap:8px;margin-top:12px}
+      .price{font-size:22px;font-weight:700}
+      .hotel-bottom .fineprint{margin:4px 0 0}
+      .rating{text-align:right;font-size:10px}
+      .rating b{background:#e4efeb;padding:7px;border-radius:7px;margin-left:5px}
+      .rating small{display:block;margin-top:5px;color:#8b9691}
+      .choose{float:right;border:0;border-radius:7px;background:#286a65;color:#fff;padding:10px 12px;font-size:10px;margin-top:8px}
+
+      @media(max-width:1050px){.layout{grid-template-columns:150px minmax(0,1fr)}.results{grid-column:1/-1}}
+      @media(max-width:650px){.topbar{padding:0 14px;gap:12px}.tagline{display:none}.layout{display:flex;flex-direction:column;padding:12px;gap:14px}.sidebar{display:flex;overflow-x:auto;gap:6px;border:0;padding:0}.sidebar .eyebrow{display:none}.trip{min-width:145px}.panel{padding:13px}.results h1{font-size:25px}.hotel-card{grid-template-columns:1fr}.hotel-image{min-height:190px}.hotel-info h2{font-size:20px}}
+
+      .layout.hide-sidebar {
+        grid-template-columns: 35px 350px minmax(0,1fr);
+        gap: 10px 20px;
+      }
+      .layout.hide-results {
+        grid-template-columns: 180px minmax(0,1fr) 45px;
+        gap: 20px 10px;
+      }
+      .layout.hide-sidebar.hide-results {
+        grid-template-columns: 35px minmax(0,1fr) 45px;
+        gap: 10px;
+      }
+      .sidebar.collapsed {
+        padding: 0 !important;
+        border: 0 !important;
+      }
+      .sidebar.collapsed .sidebar-content,
+      .sidebar.collapsed .eyebrow {
+        display: none !important;
+      }
+      .results.collapsed {
+        padding: 0 !important;
+      }
+      .results.collapsed > *:not(#results-btn) {
+        display: none !important;
+      }
+      #results-btn {
+        position: absolute;
+        top: 0;
+        right: 0;
+        z-index: 10;
+      }
+      .collapse-btn {
+        background: #f0ede6;
+        border: 1px solid #d8e1dc;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        color: #245f5d;
+        padding: 4px 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .collapse-btn:hover {
+        background: #e4eeea;
+      }
     </style>
   </head>
   <body>
     <header class="topbar"><a class="logo" href="#">≋ тихо <sup>°</sup></a><span class="tagline">подбор отелей с ИИ</span><button class="outline">+ Новая поездка</button></header>
-    <main class="layout">
-      <aside class="sidebar"><p class="eyebrow">ВАШИ ПОЕЗДКИ</p><button class="trip active">☀ Сентябрь у моря<small>Сочи · 14–19 сентября</small></button><button class="trip">Выходные в Казани<small>Вчера</small></button><button class="trip">Петербург вдвоём<small>21 августа</small></button></aside>
-      <section class="assistant panel"><div class="section-head"><div><h2>Сентябрь у моря</h2><p class="muted">Ваши пожелания — наш маршрут</p></div><span>•••</span></div><div class="chat"><div class="bubble user">Хочу в Сочи вдвоём на 14–19 сентября. Нужен тихий отель у моря, с завтраками. До 15 000 ₽ за ночь.</div><div class="bot-label">✣ Тихо · ваш ИИ-консьерж</div><p>Сентябрь — прекрасное время для моря. Что важнее: жить в центре или подальше от суеты? И нужен ли бассейн?</p><div class="bubble user">Лучше потише, но чтобы рядом были кафе. И бассейн обязательно!</div><div class="bot-label">✣ Тихо · ваш ИИ-консьерж</div><p>Нашёл 3 варианта: везде есть бассейн, завтраки и море в пешей доступности. Цены — на ваши даты, за двоих.</p></div><div class="suggestions"><button class="chip">Сравни пляжи</button><button class="chip">Покажи номера</button><button class="chip">Ещё дешевле</button></div><div class="chat-form"><textarea placeholder="А если с видом на море?..." rows="2" readonly></textarea><button class="send" aria-label="Отправить">↑</button></div><p class="fineprint">ИИ помогает выбрать. Решение всегда за вами.</p></section>
-      <section class="results"><p class="eyebrow">ВАША СЛЕДУЮЩАЯ ИСТОРИЯ</p><h1>Пять дней на берегу моря</h1><div class="search-summary"><span>◎ <small>Куда</small><b>Сочи, Россия</b></span><span>▦ <small>Даты</small><b>14–19 сентября · 5 ночей</b></span><span>♙ <small>Кто едет</small><b>2 взрослых · 1 номер</b></span></div><div class="filters"><button class="chip selected">До 15 000 ₽ / ночь</button><button class="chip">≋ Рядом с морем</button><button class="chip">Бассейн</button><button class="chip">Тихое место</button></div><div class="result-heading"><h3>Подобрано для вас <span>3 отеля</span></h3><button class="text-button">Сначала дешевле ↕</button></div><div class="hotel-list">
-        <article class="hotel-card"><div class="hotel-image" style="background-image:url('https://images.unsplash.com/photo-1571896349842-33c89424de2d?auto=format&fit=crop&w=900&q=85')"><span class="photo-count">▧ 12 фото</span></div><div class="hotel-info"><div class="hotel-top"><span>4 звезды · Бутик-отель</span><button class="heart" aria-label="В избранное">♡</button></div><h2>Морская тишина</h2><p class="muted">⌖ Сочи · Мамайка · 3 минуты до моря</p><p class="features">✓ Бассейн · Завтраки включены</p><p class="features">✓ Рядом с морем · уютная атмосфера</p><div class="hotel-bottom"><div><strong class="price">12 800 ₽</strong><span class="muted"> / ночь</span><p class="fineprint">64 000 ₽ за 5 ночей · ориентировочная цена</p></div><div class="rating">Превосходно <b>9.4</b><small>286 отзывов</small></div></div><button class="choose">Выбрать номер →</button></div></article>
-        <article class="hotel-card"><div class="hotel-image" style="background-image:url('https://images.unsplash.com/photo-1575429198097-0414ec08e8cd?auto=format&fit=crop&w=900&q=85')"><span class="photo-count">▧ 12 фото</span></div><div class="hotel-info"><div class="hotel-top"><span>5 звёзд · Бутик-отель</span><button class="heart" aria-label="В избранное">♡</button></div><h2>Сад у моря</h2><p class="muted">⌖ Сочи · Хоста · 5 минут до моря</p><p class="features">✓ Бассейн · Завтраки включены</p><p class="features">✓ Рядом с морем · уютная атмосфера</p><div class="hotel-bottom"><div><strong class="price">14 200 ₽</strong><span class="muted"> / ночь</span><p class="fineprint">71 000 ₽ за 5 ночей · ориентировочная цена</p></div><div class="rating">Превосходно <b>9.2</b><small>412 отзывов</small></div></div><button class="choose">Выбрать номер →</button></div></article>
-        <article class="hotel-card"><div class="hotel-image" style="background-image:url('https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=900&q=85')"><span class="photo-count">▧ 12 фото</span></div><div class="hotel-info"><div class="hotel-top"><span>4 звезды · Бутик-отель</span><button class="heart" aria-label="В избранное">♡</button></div><h2>Берег и бриз</h2><p class="muted">⌖ Сочи · Адлер · 2 минуты до моря</p><p class="features">✓ Зона отдыха · Завтраки включены</p><p class="features">✓ Рядом с морем · уютная атмосфера</p><div class="hotel-bottom"><div><strong class="price">10 600 ₽</strong><span class="muted"> / ночь</span><p class="fineprint">53 000 ₽ за 5 ночей · ориентировочная цена</p></div><div class="rating">Превосходно <b>9.0</b><small>198 отзывов</small></div></div><button class="choose">Выбрать номер →</button></div></article>
-      </div></section>
+    <main class="layout" id="main-layout">
+
+      <!--1-->
+      <aside class="sidebar" id="sidebar-block">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <p class="eyebrow" style="margin:0;">ВАШИ ПОЕЗДКИ</p>
+          <button class="collapse-btn" id="sidebar-btn" onclick="toggleSidebar()" title="Свернуть/Развернуть историю">◄</button>
+        </div>
+        <div class="sidebar-content" style="margin-top: 12px;">
+          <button class="trip active">☀ Сентябрь у моря<small>Сочи · 14–19 сентября</small></button>
+          <button class="trip">Выходные в Казани<small>Вчера</small></button>
+          <button class="trip">Петербург вдвоём<small>21 августа</small></button>
+        </div>
+      </aside>
+
+      <!--2-->
+      <section class="assistant panel" id="chat-panel">
+        <div class="section-head">
+          <div>
+            <h2>Сентябрь у моря</h2>
+            <p class="muted">Ваши пожелания — наш маршрут</p>
+          </div>
+          <span>•••</span>
+        </div>
+        <div class="chat">
+          <div class="bubble user">Хочу в Сочи вдвоём на 14–19 сентября. Нужен тихий отель у моря, с завтраками. До 15 000 ₽ за ночь.</div>
+          <div class="bot-label">✣ Тихо · ваш ИИ-консьерж</div>
+          <p>Сентябрь — прекрасное время для моря. Что важнее: жить в центре или подальше от суеты? И нужен ли бассейн?</p>
+          <div class="bubble user">Лучше потише, но чтобы рядом были кафе. И бассейн обязательно!</div>
+          <div class="bot-label">✣ Тихо · ваш ИИ-консьерж</div>
+          <p>Нашёл 3 варианта: везде есть бассейн, завтраки и море в пешей доступности. Цены — на ваши даты, за двоих.</p>
+        </div>
+        <div class="suggestions"><button class="chip">Сравни пляжи</button><button class="chip">Покажи номера</button><button class="chip">Ещё дешевле</button></div>
+        <div class="chat-form"><textarea placeholder="А если с видом на море?..." rows="2" readonly></textarea><button class="send" aria-label="Отправить">↑</button></div>
+        <p class="fineprint">ИИ помогает выбрать. Решение всегда за вами.</p>
+      </section>
+
+      <!--3-->
+      <section class="results" id="results-block">
+        <button class="collapse-btn" id="results-btn" onclick="toggleResults()" title="Свернуть/Развернуть результаты">►</button>
+        <p class="eyebrow" style="margin: 0 0 12px 0;">ВАША СЛЕДУЮЩАЯ ИСТОРИЯ</p>
+        <h1>Пять дней на берегу моря</h1>
+        <div class="search-summary"><span>◎ <small>Куда</small><b>Сочи, Россия</b></span><span>▦ <small>Даты</small><b>14–19 сентября · 5 ночей</b></span><span>♙ <small>Кто едет</small><b>2 взрослых · 1 номер</b></span></div>
+        <div class="filters"><button class="chip selected">До 15 000 ₽ / ночь</button><button class="chip">≋ Рядом с морем</button><button class="chip">Бассейн</button><button class="chip">Тихое место</button></div>
+        <div class="result-heading"><h3>Подобрано для вас <span>3 отеля</span></h3><button class="text-button">Сначала дешевле ↕</button></div>
+        <div class="hotel-list">
+          <article class="hotel-card"><div class="hotel-image" style="background-image:url('https://images.unsplash.com/photo-1571896349842-33c89424de2d?auto=format&fit=crop&w=900&q=85')"><span class="photo-count">▧ 12 фото</span></div><div class="hotel-info"><div class="hotel-top"><span>4 звезды · Бутик-отель</span><button class="heart" aria-label="В избранное">♡</button></div><h2>Морская тишина</h2><p class="muted">⌖ Сочи · Мамайка · 3 минуты до моря</p><p class="features">✓ Бассейн · Завтраки включены</p><p class="features">✓ Рядом с морем · уютная атмосфера</p><div class="hotel-bottom"><div><strong class="price">12 800 ₽</strong><span class="muted"> / ночь</span><p class="fineprint">64 000 ₽ за 5 ночей · ориентировочная цена</p></div><div class="rating">Превосходно <b>9.4</b><small>286 отзывов</small></div></div><button class="choose">Выбрать номер →</button></div></article>
+          <article class="hotel-card"><div class="hotel-image" style="background-image:url('https://images.unsplash.com/photo-1575429198097-0414ec08e8cd?auto=format&fit=crop&w=900&q=85')"><span class="photo-count">▧ 12 фото</span></div><div class="hotel-info"><div class="hotel-top"><span>5 звёзд · Бутик-отель</span><button class="heart" aria-label="В избранное">♡</button></div><h2>Сад у моря</h2><p class="muted">⌖ Сочи · Хоста · 5 минут до моря</p><p class="features">✓ Бассейн · Завтраки включены</p><p class="features">✓ Рядом с морем · уютная атмосфера</p><div class="hotel-bottom"><div><strong class="price">14 200 ₽</strong><span class="muted"> / ночь</span><p class="fineprint">71 000 ₽ за 5 ночей · ориентировочная цена</p></div><div class="rating">Превосходно <b>9.2</b><small>412 отзывов</small></div></div><button class="choose">Выбрать номер →</button></div></article>
+          <article class="hotel-card"><div class="hotel-image" style="background-image:url('https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=900&q=85')"><span class="photo-count">▧ 12 фото</span></div><div class="hotel-info"><div class="hotel-top"><span>4 звезды · Бутик-отель</span><button class="heart" aria-label="В избранное">♡</button></div><h2>Берег и бриз</h2><p class="muted">⌖ Сочи · Адлер · 2 минуты до моря</p><p class="features">✓ Зона отдыха · Завтраки включены</p><p class="features">✓ Рядом с морем · уютная атмосфера</p><div class="hotel-bottom"><div><strong class="price">10 600 ₽</strong><span class="muted"> / ночь</span><p class="fineprint">53 000 ₽ за 5 ночей · ориентировочная цена</p></div><div class="rating">Превосходно <b>9.0</b><small>198 отзывов</small></div></div><button class="choose">Выбрать номер →</button></div></article>
+        </div>
+      </section>
+
     </main>
+      <script>
+          function toggleSidebar() {
+              const layout = document.getElementById('main-layout');
+              const sidebar = document.getElementById('sidebar-block');
+              const btn = document.getElementById('sidebar-btn');
+              
+              layout.classList.toggle('hide-sidebar');
+              sidebar.classList.toggle('collapsed');
+              
+              btn.textContent = sidebar.classList.contains('collapsed') ? '►' : '◄';
+          }
+
+          function toggleResults() {
+              const layout = document.getElementById('main-layout');
+              const results = document.getElementById('results-block');
+              const btn = document.getElementById('results-btn');
+              
+              layout.classList.toggle('hide-results');
+              results.classList.toggle('collapsed');
+              
+              btn.textContent = results.classList.contains('collapsed') ? '◄' : '►';
+          }
+      </script>
   </body>
 </html>
