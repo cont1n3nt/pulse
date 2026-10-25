@@ -1,0 +1,8 @@
+# Дублирует зависимости из pyproject.toml для классической установки через pip.
+# При изменении одного списка обновляйте и второй.
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+langchain[openai]>=1.4.7
+langgraph
+python-dotenv>=1.2.4
+requests>=2.34.2
