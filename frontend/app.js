@@ -20,7 +20,15 @@ const chatSend = document.querySelector('#chat-send');
 const chatMessages = document.querySelector('#chat-messages');
 const chatEmpty = document.querySelector('#chat-empty');
 const chatError = document.querySelector('#chat-error');
-const chatSessionId = globalThis.crypto?.randomUUID?.() ?? String(Date.now());
+const chatList = document.querySelector('#chat-list');
+const chatTitle = document.querySelector('#chat-title');
+const newChatButton = document.querySelector('#new-chat');
+const chatsToggle = document.querySelector('#chats-toggle');
+let activeUserId = null;
+let activeChatId = null;
+let chats = [];
+let chatBusy = true;
+let accountEpoch = 0;
 let currentCode = null;
 let visible = false;
 let dragOffset = null;
@@ -109,6 +117,131 @@ async function api(path, options = {}) {
   return data;
 }
 
+function setChatBusy(busy) {
+  chatBusy = busy;
+  newChatButton.disabled = !activeUserId || busy;
+  chatSend.disabled = !activeChatId || busy;
+  chatInput.disabled = !activeChatId || busy;
+  chatList.querySelectorAll('button').forEach((button) => { button.disabled = busy; });
+}
+
+function setChatsOpen(open) {
+  document.body.classList.toggle('chats-open', open);
+  chatsToggle.setAttribute('aria-expanded', String(open));
+  chatsToggle.setAttribute('aria-label', open ? 'Скрыть чаты' : 'Показать чаты');
+}
+chatsToggle.addEventListener('click', () => setChatsOpen(!document.body.classList.contains('chats-open')));
+
+function showChatError(error) {
+  chatError.textContent = error.message;
+  chatError.hidden = false;
+}
+
+function renderChatList() {
+  chatList.replaceChildren();
+  for (const item of chats) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `trip${item.id === activeChatId ? ' active' : ''}`;
+    button.setAttribute('aria-current', item.id === activeChatId ? 'true' : 'false');
+    button.textContent = item.title;
+    const date = document.createElement('small');
+    date.textContent = new Date(item.updated_at).toLocaleDateString('ru-RU');
+    button.append(date);
+    button.disabled = chatBusy;
+    button.addEventListener('click', () => selectChat(item.id));
+    chatList.append(button);
+  }
+}
+
+function clearChat() {
+  activeChatId = null;
+  chatMessages.replaceChildren(chatEmpty);
+  chatEmpty.hidden = false;
+  chatInput.value = '';
+  resizeChatInput();
+  chatError.hidden = true;
+}
+
+function displayChat(data) {
+  clearChat();
+  activeChatId = data.chat.id;
+  chatTitle.textContent = data.chat.title;
+  for (const message of data.messages) {
+    addChatMessage(message.role === 'assistant' ? 'bot' : 'user', message.content);
+  }
+  renderChatList();
+  setChatsOpen(false);
+}
+
+async function loadUserChats(userId) {
+  activeUserId = userId;
+  const epoch = ++accountEpoch;
+  chats = [];
+  clearChat();
+  chatTitle.textContent = 'Загрузка чатов…';
+  renderChatList();
+  setChatBusy(true);
+  try {
+    const list = await api('/api/chats');
+    if (epoch !== accountEpoch) return;
+    chats = list.chats;
+    const data = chats.length
+      ? await api(`/api/chats/${encodeURIComponent(chats[0].id)}`)
+      : await api('/api/chats', { method: 'POST' });
+    if (epoch !== accountEpoch) return;
+    if (!chats.length) chats = [data.chat];
+    displayChat(data);
+  } catch (error) {
+    if (epoch === accountEpoch) {
+      chatTitle.textContent = 'Чаты';
+      renderChatList();
+      showChatError(error);
+    }
+  } finally {
+    if (epoch === accountEpoch) setChatBusy(false);
+  }
+}
+
+async function selectChat(id) {
+  if (chatBusy) return;
+  if (id === activeChatId) {
+    setChatsOpen(false);
+    return;
+  }
+  const epoch = accountEpoch;
+  setChatBusy(true);
+  chatError.hidden = true;
+  try {
+    const data = await api(`/api/chats/${encodeURIComponent(id)}`);
+    if (epoch === accountEpoch) displayChat(data);
+  } catch (error) {
+    if (epoch === accountEpoch) showChatError(error);
+  } finally {
+    if (epoch === accountEpoch) setChatBusy(false);
+  }
+}
+
+newChatButton.addEventListener('click', async () => {
+  if (chatBusy || !activeUserId) return;
+  const epoch = accountEpoch;
+  setChatBusy(true);
+  chatError.hidden = true;
+  try {
+    const data = await api('/api/chats', { method: 'POST' });
+    if (epoch !== accountEpoch) return;
+    chats.unshift(data.chat);
+    displayChat(data);
+  } catch (error) {
+    if (epoch === accountEpoch) showChatError(error);
+  } finally {
+    if (epoch === accountEpoch) {
+      setChatBusy(false);
+      chatInput.focus();
+    }
+  }
+});
+
 function addChatMessage(role, text) {
   const bubble = document.createElement('div');
   bubble.className = `bubble ${role}`;
@@ -140,25 +273,31 @@ chatInput.addEventListener('keydown', (event) => {
 chatForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const message = chatInput.value;
-  if (!message.trim()) return;
+  if (!message.trim() || chatBusy || !activeChatId) return;
+  const epoch = accountEpoch;
+  const chatId = activeChatId;
   chatError.hidden = true;
-  chatSend.disabled = true;
+  setChatBusy(true);
   try {
     const reply = await api('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: chatSessionId, message }),
+      body: JSON.stringify({ session_id: chatId, message }),
     });
-    addChatMessage('user', message);
-    addChatMessage('bot', reply.message);
+    if (epoch !== accountEpoch) return;
+    for (const item of reply.messages) addChatMessage(item.role === 'assistant' ? 'bot' : 'user', item.content);
+    chats = [reply.chat, ...chats.filter((item) => item.id !== chatId)];
+    chatTitle.textContent = reply.chat.title;
+    renderChatList();
     chatInput.value = '';
     resizeChatInput();
   } catch (error) {
-    chatError.textContent = error.message;
-    chatError.hidden = false;
+    if (epoch === accountEpoch) showChatError(error);
   } finally {
-    chatSend.disabled = false;
-    chatInput.focus();
+    if (epoch === accountEpoch) {
+      setChatBusy(false);
+      chatInput.focus();
+    }
   }
 });
 
@@ -174,6 +313,7 @@ function render(data) {
   showButton.textContent = 'Показать код';
   messageEl.textContent = '';
   if (currentCode) setPanelOpen(true);
+  if (activeUserId !== data.user_id) loadUserChats(data.user_id);
 }
 
 async function initialize() {
@@ -254,6 +394,7 @@ form.addEventListener('submit', async (event) => {
   }
 });
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') setChatsOpen(false);
   if (event.key !== 'Escape' || accountPanel.hidden) return;
   if (!loginView.hidden) setLoginMode(false);
   else setPanelOpen(false);

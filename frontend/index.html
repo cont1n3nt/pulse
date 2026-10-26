@@ -11,11 +11,11 @@
 <body>
   <div class="layout">
     <aside class="sidebar" aria-label="Боковая панель">
-      <div class="sidebar-main">
-        <p class="eyebrow">ВАШИ ПОЕЗДКИ</p>
-        <div class="trip active">☀ Сентябрь у моря<small>Сочи · 14–19 сентября</small></div>
-        <div class="trip">Выходные в Казани<small>Вчера</small></div>
-        <div class="trip">Петербург вдвоём<small>21 августа</small></div>
+      <button id="chats-toggle" class="chats-toggle" type="button" aria-label="Показать чаты" aria-controls="chat-list-panel" aria-expanded="false">☰</button>
+      <button id="new-chat" class="new-chat" type="button" aria-label="Создать новый чат" disabled>＋ <span>Новый чат</span></button>
+      <div id="chat-list-panel" class="sidebar-main">
+        <p class="eyebrow">ВАШИ ЧАТЫ</p>
+        <div id="chat-list" aria-label="Список чатов"></div>
       </div>
       <button id="profile-toggle" class="profile-toggle" type="button" aria-label="Открыть профиль" aria-controls="account-panel" aria-expanded="false" title="Профиль">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -29,7 +29,7 @@
     <main class="assistant" aria-label="Помощник">
       <div class="section-head">
         <div>
-          <h2>Сентябрь у моря</h2>
+          <h2 id="chat-title">Загрузка чатов…</h2>
           <p class="muted">Ваши пожелания — наш маршрут</p>
         </div>
         <span class="section-more" aria-hidden="true">•••</span>
@@ -44,7 +44,7 @@
       </div>
       <form id="chat-form" class="chat-form-preview">
         <textarea id="chat-input" rows="2" maxlength="5000" aria-label="Сообщение" placeholder="А если с видом на море?..." required></textarea>
-        <button id="chat-send" class="send" type="submit" aria-label="Отправить сообщение">↑</button>
+        <button id="chat-send" class="send" type="submit" aria-label="Отправить сообщение" disabled>↑</button>
       </form>
       <p id="chat-error" class="chat-error" role="status" hidden></p>
       <p class="fineprint assistant-note">ИИ помогает выбрать. Решение всегда за вами.</p>

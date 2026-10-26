@@ -30,6 +30,7 @@ button[hidden], form[hidden], .account-panel[hidden] { display: none; }
   display: flex;
   flex-direction: column;
   position: fixed;
+  z-index: 5;
   top: 22px;
   bottom: 22px;
   left: max(22px, calc((100vw - 1600px) / 2 + 22px));
@@ -40,14 +41,25 @@ button[hidden], form[hidden], .account-panel[hidden] { display: none; }
 .sidebar-main { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .eyebrow { color: #8b9691; font-size: 9px; letter-spacing: .06em; margin: 4px 0 12px; }
 .trip {
+  display: block;
   width: 100%;
   margin-bottom: 8px;
   padding: 12px 10px;
   border-radius: 10px;
   color: #405653;
   font-size: 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
+.trip:hover { background: #edf1e9; }
 .trip.active { background: #e4eeea; }
+.new-chat, .chats-toggle { border: 0; border-radius: 9px; background: #e4eeea; color: #315f5b; padding: 10px; flex-shrink: 0; }
+.new-chat { margin-bottom: 18px; text-align: left; font-size: 12px; }
+.new-chat:disabled { opacity: .5; cursor: wait; }
+.chats-toggle { display: none; }
+.section-head h2 { overflow-wrap: anywhere; }
 .trip small { display: block; margin-top: 5px; color: #7c8d87; font-size: 10px; }
 .profile-toggle {
   width: 100%;
@@ -164,6 +176,10 @@ button[hidden], form[hidden], .account-panel[hidden] { display: none; }
   .layout { grid-template-columns: 54px minmax(0, 1fr); gap: 12px; padding: 12px; }
   .sidebar { top: 8px; bottom: 8px; left: 8px; width: 46px; padding-right: 5px; }
   .sidebar-main { display: none; }
+  .chats-toggle { display: block; margin-bottom: 10px; }
+  .new-chat { padding: 8px; font-size: 20px; }
+  .new-chat span { display: none; }
+  .chats-open .sidebar-main { display: block; position: fixed; z-index: 5; top: 8px; bottom: 60px; left: 62px; width: min(240px, calc(100vw - 74px)); padding: 16px; border: 1px solid #e9e6de; border-radius: 12px; background: #fffdfa; box-shadow: 0 8px 24px #293f3e22; }
   .profile-toggle { justify-content: center; padding: 10px; }
   .profile-toggle span { display: none; }
   .account-panel { width: min(310px, calc(100vw - 24px)); padding: 15px; }
