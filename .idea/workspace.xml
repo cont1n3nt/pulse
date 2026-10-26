@@ -7,6 +7,7 @@
     <list default="true" id="f2831328-c9ba-429b-87b8-4e4cd11bb67f" name="Изменения" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README_frontend.md" beforeDir="false" afterPath="$PROJECT_DIR$/README_frontend.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/app.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/index.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/style.css" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/style.css" afterDir="false" />
     </list>
@@ -275,7 +276,7 @@
       <workItem from="1792924657928" duration="12543000" />
       <workItem from="1792945197380" duration="1680000" />
       <workItem from="1793023178615" duration="70000" />
-      <workItem from="1793027520671" duration="15531000" />
+      <workItem from="1793027520671" duration="17743000" />
     </task>
     <servers />
   </component>
@@ -332,7 +333,7 @@
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/pulse$python__m_pip_install__r_requirements_txt.coverage" NAME="Результаты покрытия python -m pip install -r requirements.txt" MODIFIED="1793045620610" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/pulse$python__m_uvicorn_backend_main_app___reload.coverage" NAME="Результаты покрытия python -m uvicorn backend.main:app --reload" MODIFIED="1793045623852" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/pulse$python__m_uvicorn_backend_main_app___reload.coverage" NAME="Результаты покрытия python -m uvicorn backend.main:app --reload" MODIFIED="1793048492497" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/pulse$python__m_venv__venv.coverage" NAME="Результаты покрытия python -m venv .venv" MODIFIED="1793043060111" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/pulse$python__c__import_secrets__print_secrets_token_urlsafe_48___.coverage" NAME="Результаты покрытия python -c &quot;import secrets; print(secrets.token_urlsafe(48))&quot;" MODIFIED="1793043805590" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
