@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -104,13 +105,72 @@ class AuthTests(unittest.TestCase):
         https.close()
 
     def test_chat_echo_and_validation(self):
+        self.assertEqual(self.first.get("/api/chats").status_code, 401)
+        self.assertEqual(self.post(self.first, "/api/chats").status_code, 401)
+        self.assertEqual(self.post(self.first, "/api/chat", json={"session_id": "demo", "message": "test"}).status_code, 401)
+        self.post(self.first, "/api/auth/guest")
+        created = self.post(self.first, "/api/chats")
+        self.assertEqual(created.status_code, 201)
+        chat_id = created.json()["chat"]["id"]
+        self.assertEqual(created.json()["messages"], [])
         message = " Привет, море!\nВторая строка "
-        response = self.post(self.first, "/api/chat", json={"session_id": "demo", "message": message})
+        response = self.post(self.first, "/api/chat", json={"session_id": chat_id, "message": message})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"session_id": "demo", "message": message})
-        self.assertEqual(self.post(self.first, "/api/chat", json={"session_id": "demo", "message": "  "}).status_code, 422)
-        self.assertEqual(self.first.post("/api/chat", headers={"Origin": "https://evil.example"}, json={"session_id": "demo", "message": message}).status_code, 403)
-        self.assertEqual(self.count(), 0)
+        self.assertEqual(response.json()["message"], message)
+        self.assertEqual(response.json()["session_id"], chat_id)
+        history = self.first.get(f"/api/chats/{chat_id}").json()
+        self.assertEqual([item["role"] for item in history["messages"]], ["user", "assistant"])
+        self.assertEqual([item["content"] for item in history["messages"]], [message, message])
+        self.assertEqual(history["chat"]["title"], "Привет, море! Вторая строка")
+        self.assertEqual(self.post(self.first, "/api/chat", json={"session_id": chat_id, "message": "  "}).status_code, 422)
+        self.assertEqual(self.first.post("/api/chat", headers={"Origin": "https://evil.example"}, json={"session_id": chat_id, "message": message}).status_code, 403)
+        self.assertEqual(self.first.post("/api/chats", headers={"Origin": "https://evil.example"}).status_code, 403)
+        self.assertEqual(len(self.first.get(f"/api/chats/{chat_id}").json()["messages"]), 2)
+
+    def test_chats_isolation_switching_and_restart(self):
+        account = self.post(self.first, "/api/auth/guest").json()
+        first_id = self.post(self.first, "/api/chats").json()["chat"]["id"]
+        self.post(self.first, "/api/chat", json={"session_id": first_id, "message": "Первый чат"})
+        second_id = self.post(self.first, "/api/chats").json()["chat"]["id"]
+        self.post(self.first, "/api/chat", json={"session_id": second_id, "message": "Второй чат"})
+        self.assertEqual(self.first.get(f"/api/chats/{first_id}").json()["messages"][0]["content"], "Первый чат")
+        self.assertEqual(self.first.get(f"/api/chats/{second_id}").json()["messages"][0]["content"], "Второй чат")
+        self.assertEqual([item["id"] for item in self.first.get("/api/chats").json()["chats"]], [second_id, first_id])
+
+        self.post(self.second, "/api/auth/guest")
+        self.assertEqual(self.second.get("/api/chats").json()["chats"], [])
+        self.assertEqual(self.second.get(f"/api/chats/{first_id}").status_code, 404)
+        self.assertEqual(self.post(self.second, "/api/chat", json={"session_id": first_id, "message": "Чужое сообщение"}).status_code, 404)
+        self.assertEqual(self.first.get("/api/chats/missing").status_code, 404)
+        self.post(self.second, "/api/auth/login", json={"code": account["code"]})
+        self.assertEqual(len(self.second.get("/api/chats").json()["chats"]), 2)
+
+        restarted = TestClient(create_app(self.db_url, os.environ["PULSE_AUTH_KEY"]))
+        try:
+            self.post(restarted, "/api/auth/login", json={"code": account["code"]})
+            self.assertEqual(len(restarted.get("/api/chats").json()["chats"]), 2)
+            self.assertEqual(len(restarted.get(f"/api/chats/{first_id}").json()["messages"]), 2)
+        finally:
+            restarted.close()
+            restarted.app.state.db.kw["bind"].dispose()
+
+    def test_concurrent_messages_remain_in_pairs(self):
+        self.post(self.first, "/api/auth/guest")
+        chat_id = self.post(self.first, "/api/chats").json()["chat"]["id"]
+        token = self.first.cookies.get("pulse_session")
+
+        def send(text):
+            with TestClient(self.app) as client:
+                client.cookies.set("pulse_session", token)
+                return self.post(client, "/api/chat", json={"session_id": chat_id, "message": text}).status_code
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertEqual(list(pool.map(send, ["A", "B"])), [200, 200])
+        messages = self.first.get(f"/api/chats/{chat_id}").json()["messages"]
+        self.assertEqual([item["role"] for item in messages], ["user", "assistant", "user", "assistant"])
+        self.assertEqual(messages[0]["content"], messages[1]["content"])
+        self.assertEqual(messages[2]["content"], messages[3]["content"])
+        self.assertNotEqual(messages[0]["content"], messages[2]["content"])
 
 
 if __name__ == "__main__":
