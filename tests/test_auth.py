@@ -103,6 +103,15 @@ class AuthTests(unittest.TestCase):
         self.assertIn("secure", response.headers["set-cookie"].lower())
         https.close()
 
+    def test_chat_echo_and_validation(self):
+        message = " Привет, море!\nВторая строка "
+        response = self.post(self.first, "/api/chat", json={"session_id": "demo", "message": message})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"session_id": "demo", "message": message})
+        self.assertEqual(self.post(self.first, "/api/chat", json={"session_id": "demo", "message": "  "}).status_code, 422)
+        self.assertEqual(self.first.post("/api/chat", headers={"Origin": "https://evil.example"}, json={"session_id": "demo", "message": message}).status_code, 403)
+        self.assertEqual(self.count(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

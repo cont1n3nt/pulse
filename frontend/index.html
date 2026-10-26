@@ -26,7 +26,7 @@
       </button>
     </aside>
 
-    <main class="assistant panel" aria-label="Помощник">
+    <main class="assistant" aria-label="Помощник">
       <div class="section-head">
         <div>
           <h2>Сентябрь у моря</h2>
@@ -34,20 +34,19 @@
         </div>
         <span class="section-more" aria-hidden="true">•••</span>
       </div>
-      <div class="chat-preview">
-        <div class="bubble user">Хочется спокойный отдых у моря, без суеты.</div>
-        <div class="bot-label">≋ ТИХО</div>
-        <div class="bubble bot">Подберём место, где можно выдохнуть. Здесь будет ваша беседа о поездке.</div>
+      <div id="chat-messages" class="chat-preview" role="log" aria-label="Сообщения чата" aria-live="polite">
+        <p id="chat-empty" class="chat-empty">Напишите сообщение — пока я повторю его в ответ.</p>
       </div>
       <div class="suggestions" aria-label="Примеры запросов">
         <span class="chip">Сравни пляжи</span>
         <span class="chip">Покажи номера</span>
         <span class="chip">Ещё дешевле</span>
       </div>
-      <div class="chat-form-preview">
-        <span>А если с видом на море?...</span>
-        <span class="send" aria-hidden="true">↑</span>
-      </div>
+      <form id="chat-form" class="chat-form-preview">
+        <textarea id="chat-input" rows="2" maxlength="5000" aria-label="Сообщение" placeholder="А если с видом на море?..." required></textarea>
+        <button id="chat-send" class="send" type="submit" aria-label="Отправить сообщение">↑</button>
+      </form>
+      <p id="chat-error" class="chat-error" role="status" hidden></p>
       <p class="fineprint assistant-note">ИИ помогает выбрать. Решение всегда за вами.</p>
     </main>
 
