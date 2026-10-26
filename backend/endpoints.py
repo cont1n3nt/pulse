@@ -20,6 +20,11 @@ class LoginRequest(BaseModel):
     code: str = Field(min_length=1, max_length=256)
 
 
+class ChatRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=100)
+    message: str = Field(min_length=1, max_length=5000)
+
+
 def check_origin(request: Request) -> None:
     origin = request.headers.get("origin")
     expected = f"{request.url.scheme}://{request.headers.get('host', '')}"
@@ -50,6 +55,14 @@ def me(request: Request) -> dict[str, str]:
     if user_id is None:
         raise HTTPException(401, "Нет действующей сессии")
     return {"user_id": user_id}
+
+
+@router.post("/api/chat")
+def chat(request: Request, payload: ChatRequest) -> dict[str, str]:
+    check_origin(request)
+    if not payload.message.strip():
+        raise HTTPException(422, "Сообщение не может быть пустым")
+    return {"session_id": payload.session_id, "message": payload.message}
 
 
 @router.post("/api/auth/guest")

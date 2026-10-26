@@ -7,9 +7,11 @@
     <list default="true" id="f2831328-c9ba-429b-87b8-4e4cd11bb67f" name="Изменения" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README_frontend.md" beforeDir="false" afterPath="$PROJECT_DIR$/README_frontend.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/endpoints.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/endpoints.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/app.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/app.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/index.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/style.css" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/style.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_auth.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_auth.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -276,7 +278,7 @@
       <workItem from="1792924657928" duration="12543000" />
       <workItem from="1792945197380" duration="1680000" />
       <workItem from="1793023178615" duration="70000" />
-      <workItem from="1793027520671" duration="17743000" />
+      <workItem from="1793027520671" duration="19539000" />
     </task>
     <servers />
   </component>

@@ -14,6 +14,13 @@ const accountPanel = document.querySelector('#account-panel');
 const profileToggle = document.querySelector('#profile-toggle');
 const closePanelButton = document.querySelector('#close-panel');
 const panelDrag = document.querySelector('#panel-drag');
+const chatForm = document.querySelector('#chat-form');
+const chatInput = document.querySelector('#chat-input');
+const chatSend = document.querySelector('#chat-send');
+const chatMessages = document.querySelector('#chat-messages');
+const chatEmpty = document.querySelector('#chat-empty');
+const chatError = document.querySelector('#chat-error');
+const chatSessionId = globalThis.crypto?.randomUUID?.() ?? String(Date.now());
 let currentCode = null;
 let visible = false;
 let dragOffset = null;
@@ -21,15 +28,18 @@ let dragOffset = null;
 function keepPanelInViewport() {
   if (accountPanel.hidden) return;
   const rect = accountPanel.getBoundingClientRect();
-  const minLeft = window.innerWidth <= 650
-    ? 62
-    : window.innerWidth <= 1050
-      ? 172
-      : Math.max(202, (window.innerWidth - 1600) / 2 + 202);
+  const minLeft = 8;
   const left = Math.min(Math.max(rect.left, minLeft), Math.max(minLeft, window.innerWidth - rect.width - 8));
   const top = Math.min(Math.max(rect.top, 8), Math.max(8, window.innerHeight - rect.height - 8));
   accountPanel.style.left = `${left}px`;
   accountPanel.style.top = `${top}px`;
+}
+
+function centerPanel() {
+  if (accountPanel.hidden) return;
+  const rect = accountPanel.getBoundingClientRect();
+  accountPanel.style.left = `${Math.max(8, (window.innerWidth - rect.width) / 2)}px`;
+  accountPanel.style.top = `${Math.max(8, (window.innerHeight - rect.height) / 2)}px`;
 }
 
 panelDrag.addEventListener('pointerdown', (event) => {
@@ -57,7 +67,7 @@ window.addEventListener('resize', keepPanelInViewport);
 
 function setPanelOpen(open) {
   accountPanel.hidden = !open;
-  if (open) keepPanelInViewport();
+  if (open) centerPanel();
   document.body.classList.toggle('panel-open', open);
   profileToggle.setAttribute('aria-expanded', String(open));
   profileToggle.setAttribute('aria-label', open ? 'Свернуть профиль' : 'Открыть профиль');
@@ -82,7 +92,7 @@ function setLoginMode(active) {
     toggleLoginCode.textContent = 'Показать код';
     toggleLoginCode.setAttribute('aria-pressed', 'false');
   }
-  keepPanelInViewport();
+  centerPanel();
 }
 
 profileToggle.addEventListener('click', () => setPanelOpen(accountPanel.hidden));
@@ -98,6 +108,59 @@ async function api(path, options = {}) {
   }
   return data;
 }
+
+function addChatMessage(role, text) {
+  const bubble = document.createElement('div');
+  bubble.className = `bubble ${role}`;
+  bubble.textContent = text;
+  if (role === 'bot') {
+    const label = document.createElement('div');
+    label.className = 'bot-label';
+    label.textContent = '≋ ТИХО';
+    chatMessages.append(label);
+  }
+  chatEmpty.hidden = true;
+  chatMessages.append(bubble);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function resizeChatInput() {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = `${chatInput.scrollHeight}px`;
+}
+chatInput.addEventListener('input', resizeChatInput);
+window.addEventListener('resize', resizeChatInput);
+
+chatInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    chatForm.requestSubmit();
+  }
+});
+chatForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const message = chatInput.value;
+  if (!message.trim()) return;
+  chatError.hidden = true;
+  chatSend.disabled = true;
+  try {
+    const reply = await api('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: chatSessionId, message }),
+    });
+    addChatMessage('user', message);
+    addChatMessage('bot', reply.message);
+    chatInput.value = '';
+    resizeChatInput();
+  } catch (error) {
+    chatError.textContent = error.message;
+    chatError.hidden = false;
+  } finally {
+    chatSend.disabled = false;
+    chatInput.focus();
+  }
+});
 
 function render(data) {
   setLoginMode(false);
