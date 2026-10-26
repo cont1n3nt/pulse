@@ -4,8 +4,23 @@ const messageEl = document.querySelector('#message');
 const showButton = document.querySelector('#show-code');
 const copyButton = document.querySelector('#copy-code');
 const form = document.querySelector('#login-form');
+const accountPanel = document.querySelector('#account-panel');
+const profileToggle = document.querySelector('#profile-toggle');
+const closePanelButton = document.querySelector('#close-panel');
 let currentCode = null;
 let visible = false;
+
+function setPanelOpen(open) {
+  accountPanel.hidden = !open;
+  document.body.classList.toggle('panel-open', open);
+  profileToggle.setAttribute('aria-expanded', String(open));
+  profileToggle.setAttribute('aria-label', open ? 'Свернуть профиль' : 'Открыть профиль');
+  if (open) closePanelButton.focus();
+  else profileToggle.focus();
+}
+
+profileToggle.addEventListener('click', () => setPanelOpen(accountPanel.hidden));
+closePanelButton.addEventListener('click', () => setPanelOpen(false));
 
 async function api(path, options = {}) {
   const response = await fetch(path, { credentials: 'same-origin', ...options });
@@ -27,6 +42,7 @@ function render(data) {
   showButton.textContent = 'Показать код';
   copyButton.hidden = !currentCode;
   messageEl.textContent = '';
+  if (currentCode) setPanelOpen(true);
 }
 
 async function initialize() {
@@ -34,12 +50,14 @@ async function initialize() {
     render(await api('/api/auth/me'));
   } catch (error) {
     if (error.status !== 401) {
+      setPanelOpen(true);
       messageEl.textContent = error.message;
       return;
     }
     try {
       render(await api('/api/auth/guest', { method: 'POST' }));
     } catch (guestError) {
+      setPanelOpen(true);
       messageEl.textContent = guestError.message;
     }
   }

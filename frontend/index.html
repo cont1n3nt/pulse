@@ -8,25 +8,49 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body>
-  <main class="card">
-    <h1>Мой аккаунт</h1>
-    <p class="label">Ваш ID</p>
-    <p id="user-id" class="value">Загрузка…</p>
-    <p class="label">Код доступа</p>
-    <div id="code-box" class="code-box" aria-live="polite">Загрузка…</div>
-    <button id="show-code" type="button" hidden>Показать код</button>
-    <button id="copy-code" type="button" hidden>Скопировать код</button>
-    <button id="rotate" type="button">Перевыпустить код</button>
-    <button id="open-login" type="button" class="secondary">Войти в существующий аккаунт</button>
-    <form id="login-form" hidden>
-      <label for="login-code">Код доступа</label>
-      <input id="login-code" name="code" type="text" autocomplete="off" required maxlength="256">
-      <div class="actions">
-        <button type="submit">Войти</button>
-        <button id="cancel-login" type="button" class="secondary">Отмена</button>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Боковая панель">
+      <div class="brand" aria-label="Pulse">P</div>
+      <button id="profile-toggle" class="profile-toggle" type="button" aria-label="Открыть профиль" aria-controls="account-panel" aria-expanded="false" title="Профиль">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="8" r="3.5"></circle>
+          <path d="M4.5 20c.4-4 3.3-6 7.5-6s7.1 2 7.5 6"></path>
+        </svg>
+      </button>
+    </aside>
+
+    <section id="account-panel" class="account-panel" aria-labelledby="account-title" hidden>
+      <div class="panel-header">
+        <h1 id="account-title">Мой аккаунт</h1>
+        <button id="close-panel" class="close-panel" type="button" aria-label="Свернуть панель профиля" title="Свернуть">×</button>
       </div>
-    </form>
-    <p id="message" role="status" aria-live="polite"></p>
-  </main>
+      <p class="panel-intro">Сохраните код доступа, чтобы вернуться в аккаунт с другого устройства.</p>
+      <p class="label">Ваш ID</p>
+      <p id="user-id" class="value">Загрузка…</p>
+      <p class="label">Код доступа</p>
+      <div id="code-box" class="code-box" aria-live="polite">Загрузка…</div>
+      <button id="show-code" type="button" hidden>Показать код</button>
+      <button id="copy-code" type="button" hidden>Скопировать код</button>
+      <button id="rotate" type="button">Перевыпустить код</button>
+      <button id="open-login" type="button" class="secondary">Войти в существующий аккаунт</button>
+      <form id="login-form" hidden>
+        <label for="login-code">Код доступа</label>
+        <input id="login-code" name="code" type="text" autocomplete="off" required maxlength="256">
+        <div class="actions">
+          <button type="submit">Войти</button>
+          <button id="cancel-login" type="button" class="secondary">Отмена</button>
+        </div>
+      </form>
+      <p id="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <main class="workspace">
+      <div class="welcome">
+        <span class="welcome-mark">P</span>
+        <h2>Добро пожаловать в Pulse</h2>
+        <p>Управление аккаунтом находится в профиле слева внизу.</p>
+      </div>
+    </main>
+  </div>
 </body>
 </html>
