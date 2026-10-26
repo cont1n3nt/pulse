@@ -4,7 +4,7 @@ from functools import lru_cache
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import dynamic_prompt
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
 from .config import AGENT_RECURSION_LIMIT, make_llm
@@ -97,3 +97,29 @@ def handle_message(session_id: str, text: str) -> AgentResponse:
         state=state,
         tool_calls=tool_calls,
     )
+
+
+def stream_message(session_id: str, text: str):
+    """Генератор событий для SSE: reasoning -> token* -> done (или error)."""
+    state = get_state(session_id)
+    config = {"configurable": {"thread_id": session_id}, "recursion_limit": AGENT_RECURSION_LIMIT}
+
+    yield {"type": "reasoning"}
+    try:
+        with _session_lock(session_id):
+            for chunk, meta in _agent().stream(
+                {"messages": [{"role": "user", "content": text}]}, config, stream_mode="messages"
+            ):
+                if isinstance(chunk, ToolMessage):
+                    if chunk.name == "search_flights" and chunk.artifact:
+                        state.flights = [FlightOption.model_validate(f) for f in chunk.artifact]
+                        state.stage = "compare"
+                elif isinstance(chunk, AIMessageChunk) and meta.get("langgraph_node") == "model":
+                    token = _text(chunk)
+                    if token:
+                        yield {"type": "token", "text": token}
+    except Exception:
+        log.exception("Агент упал на сессии %s", session_id)
+        yield {"type": "error", "detail": "Не получилось обработать запрос, попробуйте ещё раз."}
+        return
+    yield {"type": "done"}
