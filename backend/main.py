@@ -1,43 +1,29 @@
+import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from dotenv import load_dotenv
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
 
-app = FastAPI(title="Pulse API", version="1.0.0")
-FRONTEND_INDEX = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
-FRONTEND_DIR = FRONTEND_INDEX.parent
-
-app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
+from backend.auth import AuthState
+from backend.database import make_session_factory
+from backend.endpoints import router
+from backend import models  # noqa: F401 - register model before create_all
 
 
-class Message(BaseModel):
-    role: str = Field(pattern="^(user|assistant)$")
-    text: str = Field(min_length=1, max_length=5000)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
-class ChatRequest(BaseModel):
-    chat_id: str = Field(min_length=1, max_length=100)
-    messages: list[Message] = Field(min_length=1, max_length=500)
+def create_app(database_url: str | None = None, secret_key: str | None = None) -> FastAPI:
+    key = secret_key or os.getenv("PULSE_AUTH_KEY")
+    if not key:
+        raise RuntimeError("Set PULSE_AUTH_KEY to a random value of at least 32 bytes")
+    app = FastAPI(title="Pulse Auth", version="1.0.0", docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.auth = AuthState(key)
+    app.state.db = make_session_factory(database_url)
+    app.include_router(router)
+    app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent.parent / "frontend"), name="static")
+    return app
 
 
-@app.get("/", include_in_schema=False)
-def index() -> FileResponse:
-    return FileResponse(FRONTEND_INDEX, media_type="text/html")
-
-
-@app.get("/health", tags=["health"])
-def health() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@app.post("/api/messages", tags=["chat"])
-def receive_message(request: ChatRequest) -> dict[str, str]:
-    latest_user_message = next(
-        (message.text for message in reversed(request.messages) if message.role == "user"),
-        None,
-    )
-    if latest_user_message is None or not latest_user_message.strip():
-        raise HTTPException(status_code=422, detail="Текст сообщения не может быть пустым")
-    return {"chat_id": request.chat_id, "text": latest_user_message}
+app = create_app()
