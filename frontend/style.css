@@ -58,6 +58,8 @@
 .bot-text:empty { display: none; }
 .reasoning { display: flex; align-items: center; gap: 8px; color: #84918b; font-size: 12px; margin: 4px 0; }
 .reasoning[hidden] { display: none; }
+.chat-list .trip { cursor: pointer; }
+.new-chat { cursor: pointer; }
 .spinner { width: 12px; height: 12px; border: 2px solid #d8e1dc; border-top-color: #286a65; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .bubble.error { background: #f6e6e3; color: #8a3a2f; align-self: flex-start; }
