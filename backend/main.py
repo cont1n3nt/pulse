@@ -1,12 +1,9 @@
-import json
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-
-from backend.agent import stream_message
 
 app = FastAPI(title="Pulse API", version="1.0.0")
 FRONTEND_INDEX = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
@@ -15,9 +12,14 @@ FRONTEND_DIR = FRONTEND_INDEX.parent
 app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
 
 
-class ChatMessage(BaseModel):
+class Message(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
     text: str = Field(min_length=1, max_length=5000)
-    session_id: str = Field(default="default", min_length=1, max_length=100)
+
+
+class ChatRequest(BaseModel):
+    chat_id: str = Field(min_length=1, max_length=100)
+    messages: list[Message] = Field(min_length=1, max_length=500)
 
 
 @app.get("/", include_in_schema=False)
@@ -31,17 +33,11 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/messages", tags=["chat"])
-def receive_message(message: ChatMessage) -> StreamingResponse:
-    text = message.text.strip()
-    if not text:
-        raise HTTPException(status_code=422, detail="Текст сообщения не может быть пустым")
-
-    def events():
-        for event in stream_message(message.session_id, text):
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-
-    return StreamingResponse(
-        events(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+def receive_message(request: ChatRequest) -> dict[str, str]:
+    latest_user_message = next(
+        (message.text for message in reversed(request.messages) if message.role == "user"),
+        None,
     )
+    if latest_user_message is None or not latest_user_message.strip():
+        raise HTTPException(status_code=422, detail="Текст сообщения не может быть пустым")
+    return {"chat_id": request.chat_id, "text": latest_user_message}

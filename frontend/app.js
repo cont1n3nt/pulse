@@ -2,94 +2,124 @@ const chat = document.querySelector(".chat");
 const form = document.querySelector(".chat-form");
 const input = form?.querySelector("textarea");
 const sendButton = form?.querySelector(".send");
+const chatList = document.querySelector(".chat-list");
+const newChatButton = document.querySelector(".new-chat");
+const chatTitle = document.querySelector("#chat-title");
 
-if (chat && form && input && sendButton) {
+if (chat && form && input && sendButton && chatList && newChatButton && chatTitle) {
   input.id = "chat-input";
   input.setAttribute("aria-label", "Текст сообщения");
   input.removeAttribute("readonly");
   sendButton.type = "button";
 
-  const sessionId = crypto.randomUUID();
+  const STORAGE_KEY = "pulse.chats.v1";
+  const starterChats = [
+    { id: crypto.randomUUID(), title: "Сентябрь у моря", subtitle: "Сочи · 14–19 сентября", messages: [] },
+    { id: crypto.randomUUID(), title: "Выходные в Казани", subtitle: "Вчера", messages: [] },
+    { id: crypto.randomUUID(), title: "Петербург вдвоём", subtitle: "21 августа", messages: [] },
+  ];
+  let chats;
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    chats = Array.isArray(saved) && saved.length ? saved : starterChats;
+  } catch {
+    chats = starterChats;
+  }
+  chats = chats.filter((item) => item && typeof item.id === "string" && Array.isArray(item.messages));
+  if (!chats.length) chats = starterChats;
+  let activeChatId = chats[0].id;
+  let sending = false;
+
+  const persist = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(chats));
+  const activeChat = () => chats.find((item) => item.id === activeChatId);
 
   const scrollDown = (el) => el.scrollIntoView({ block: "nearest" });
 
-  const addMessage = (text, className) => {
+  const renderMessage = (text, className) => {
     const bubble = document.createElement("div");
     bubble.className = `bubble ${className}`;
     bubble.textContent = text;
     chat.append(bubble);
-    scrollDown(bubble);
+    return bubble;
   };
 
-  const addBotReply = () => {
-    const label = document.createElement("div");
-    label.className = "bot-label";
-    label.textContent = "✣ Тихо · ваш ИИ-консьерж";
-
-    const status = document.createElement("div");
-    status.className = "reasoning";
-    status.innerHTML = '<span class="spinner" aria-hidden="true"></span>Рассуждаю…';
-
-    const body = document.createElement("p");
-    body.className = "bot-text";
-
-    chat.append(label, status, body);
-    scrollDown(status);
-    return { status, body };
+  const renderChatList = () => {
+    chatList.replaceChildren();
+    chats.forEach((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `trip${item.id === activeChatId ? " active" : ""}`;
+      button.setAttribute("aria-current", item.id === activeChatId ? "true" : "false");
+      button.append(document.createTextNode(item.title));
+      const subtitle = document.createElement("small");
+      subtitle.textContent = item.subtitle || "Новая переписка";
+      button.append(subtitle);
+      button.addEventListener("click", () => switchChat(item.id));
+      chatList.append(button);
+    });
   };
 
-  const readEvents = async (response, onEvent) => {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop();
-      for (const part of parts) {
-        if (part.startsWith("data: ")) onEvent(JSON.parse(part.slice(6)));
-      }
-    }
+  const renderChat = () => {
+    const current = activeChat();
+    chat.replaceChildren();
+    chatTitle.textContent = current.title;
+    current.messages.forEach((item) => renderMessage(item.text, item.role));
+    if (chat.lastElementChild) scrollDown(chat.lastElementChild);
+    renderChatList();
+  };
+
+  const switchChat = (id) => {
+    if (sending || !chats.some((item) => item.id === id)) return;
+    activeChatId = id;
+    renderChat();
+  };
+
+  const createChat = () => {
+    const item = {
+      id: crypto.randomUUID(),
+      title: "Новая поездка",
+      subtitle: "Новая переписка",
+      messages: [],
+    };
+    chats.unshift(item);
+    activeChatId = item.id;
+    persist();
+    renderChat();
   };
 
   const sendMessage = async () => {
     const text = input.value.trim();
-    if (!text || sendButton.disabled) return;
+    if (!text || sending) return;
 
+    sending = true;
     sendButton.disabled = true;
     sendButton.setAttribute("aria-busy", "true");
-    addMessage(text, "user");
+    const current = activeChat();
+    current.messages.push({ role: "user", text });
+    if (current.title === "Новая поездка") current.title = text.slice(0, 32);
+    persist();
+    renderChat();
     input.value = "";
     input.style.height = "";
-    const reply = addBotReply();
 
     try {
       const response = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, session_id: sessionId }),
+        body: JSON.stringify({ chat_id: current.id, messages: current.messages }),
       });
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
         throw new Error(result.detail || "Не удалось отправить сообщение");
       }
-      await readEvents(response, (event) => {
-        if (event.type === "token") {
-          reply.status.hidden = true;
-          reply.body.textContent += event.text;
-          scrollDown(reply.body);
-        } else if (event.type === "error") {
-          throw new Error(event.detail);
-        }
-      });
+      const result = await response.json();
+      current.messages.push({ role: "assistant", text: result.text });
+      persist();
+      if (activeChatId === current.id) renderChat();
     } catch (error) {
-      reply.status.remove();
-      if (!reply.body.textContent) reply.body.remove();
-      addMessage(error.message, "error");
+      renderMessage(error.message, "error");
     } finally {
-      reply.status.hidden = true;
+      sending = false;
       sendButton.disabled = false;
       sendButton.removeAttribute("aria-busy");
       input.focus();
@@ -97,10 +127,13 @@ if (chat && form && input && sendButton) {
   };
 
   sendButton.addEventListener("click", sendMessage);
+  newChatButton.addEventListener("click", createChat);
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       sendMessage();
     }
   });
+  persist();
+  renderChat();
 }
