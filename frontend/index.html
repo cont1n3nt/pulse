@@ -3,54 +3,153 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Мой аккаунт</title>
+  <meta name="theme-color" content="#f4f3ee">
+  <title>Тихо — мой аккаунт</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
 </head>
 <body>
-  <div class="shell">
+  <header class="topbar">
+    <span class="logo">≋ тихо <sup>°</sup></span>
+    <span class="tagline">подбор отелей с ИИ</span>
+    <span class="topbar-note">Макет интерфейса</span>
+  </header>
+
+  <div class="layout">
     <aside class="sidebar" aria-label="Боковая панель">
-      <div class="brand" aria-label="Pulse">P</div>
+      <div class="sidebar-main">
+        <p class="eyebrow">ВАШИ ПОЕЗДКИ</p>
+        <div class="trip active">☀ Сентябрь у моря<small>Сочи · 14–19 сентября</small></div>
+        <div class="trip">Выходные в Казани<small>Вчера</small></div>
+        <div class="trip">Петербург вдвоём<small>21 августа</small></div>
+      </div>
       <button id="profile-toggle" class="profile-toggle" type="button" aria-label="Открыть профиль" aria-controls="account-panel" aria-expanded="false" title="Профиль">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="8" r="3.5"></circle>
           <path d="M4.5 20c.4-4 3.3-6 7.5-6s7.1 2 7.5 6"></path>
         </svg>
+        <span>Профиль</span>
       </button>
     </aside>
 
-    <section id="account-panel" class="account-panel" aria-labelledby="account-title" hidden>
-      <div class="panel-header">
-        <h1 id="account-title">Мой аккаунт</h1>
-        <button id="close-panel" class="close-panel" type="button" aria-label="Свернуть панель профиля" title="Свернуть">×</button>
-      </div>
-      <p class="panel-intro">Сохраните код доступа, чтобы вернуться в аккаунт с другого устройства.</p>
-      <p class="label">Ваш ID</p>
-      <p id="user-id" class="value">Загрузка…</p>
-      <p class="label">Код доступа</p>
-      <div id="code-box" class="code-box" aria-live="polite">Загрузка…</div>
-      <button id="show-code" type="button" hidden>Показать код</button>
-      <button id="copy-code" type="button" hidden>Скопировать код</button>
-      <button id="rotate" type="button">Перевыпустить код</button>
-      <button id="open-login" type="button" class="secondary">Войти в существующий аккаунт</button>
-      <form id="login-form" hidden>
-        <label for="login-code">Код доступа</label>
-        <input id="login-code" name="code" type="text" autocomplete="off" required maxlength="256">
-        <div class="actions">
-          <button type="submit">Войти</button>
-          <button id="cancel-login" type="button" class="secondary">Отмена</button>
+    <section class="assistant panel" aria-label="Помощник">
+      <div class="section-head">
+        <div>
+          <h2>Сентябрь у моря</h2>
+          <p class="muted">Ваши пожелания — наш маршрут</p>
         </div>
-      </form>
-      <p id="message" role="status" aria-live="polite"></p>
+        <span class="section-more" aria-hidden="true">•••</span>
+      </div>
+      <div class="chat-preview">
+        <div class="bubble user">Хочется спокойный отдых у моря, без суеты.</div>
+        <div class="bot-label">≋ ТИХО</div>
+        <div class="bubble bot">Подберём место, где можно выдохнуть. Здесь будет ваша беседа о поездке.</div>
+      </div>
+      <div class="suggestions" aria-label="Примеры запросов">
+        <span class="chip">Сравни пляжи</span>
+        <span class="chip">Покажи номера</span>
+        <span class="chip">Ещё дешевле</span>
+      </div>
+      <div class="chat-form-preview">
+        <span>А если с видом на море?...</span>
+        <span class="send" aria-hidden="true">↑</span>
+      </div>
+      <p class="fineprint assistant-note">ИИ помогает выбрать. Решение всегда за вами.</p>
     </section>
 
-    <main class="workspace">
-      <div class="welcome">
-        <span class="welcome-mark">P</span>
-        <h2>Добро пожаловать в Pulse</h2>
-        <p>Управление аккаунтом находится в профиле слева внизу.</p>
+    <main class="results">
+      <div class="results-head">
+        <p class="eyebrow">ВАША СЛЕДУЮЩАЯ ИСТОРИЯ</p>
+        <h1>Пять дней на берегу моря</h1>
+      </div>
+      <div class="search-summary">
+        <span>◎ <small>Куда</small><b>Сочи, Россия</b></span>
+        <span>▦ <small>Даты</small><b>14–19 сентября · 5 ночей</b></span>
+        <span>♙ <small>Кто едет</small><b>2 взрослых · 1 номер</b></span>
+      </div>
+      <div class="filters" aria-label="Примеры фильтров">
+        <span class="chip selected">До 15 000 ₽ / ночь</span>
+        <span class="chip">≋ Рядом с морем</span>
+        <span class="chip">Бассейн</span>
+        <span class="chip">Тихое место</span>
+      </div>
+      <div class="result-heading">
+        <h3>Подобрано для вас <span>3 отеля</span></h3>
+        <span class="text-button">Сначала дешевле ↕</span>
+      </div>
+      <div class="hotel-list" aria-label="Пример оформления отелей">
+        <article class="hotel-card">
+          <div class="hotel-image hotel-image-one"><span class="photo-count">▧ 12 фото</span></div>
+          <div class="hotel-info">
+            <div class="hotel-top"><span>4 звезды · Бутик-отель</span><span class="heart">♡</span></div>
+            <h2>Морская тишина</h2>
+            <p class="muted">⌖ Сочи · Мамайка · 3 минуты до моря</p>
+            <p class="features">✓ Бассейн · Завтраки включены</p>
+            <p class="features">✓ Рядом с морем · уютная атмосфера</p>
+            <div class="hotel-bottom">
+              <div><strong class="price">12 800 ₽</strong><span class="muted"> / ночь</span><p class="fineprint">64 000 ₽ за 5 ночей · ориентировочная цена</p></div>
+              <div class="rating">Превосходно <b>9.4</b><small>286 отзывов</small></div>
+            </div>
+            <span class="choose">Выбрать номер →</span>
+          </div>
+        </article>
+        <article class="hotel-card">
+          <div class="hotel-image hotel-image-two"><span class="photo-count">▧ 12 фото</span></div>
+          <div class="hotel-info">
+            <div class="hotel-top"><span>5 звёзд · Бутик-отель</span><span class="heart">♡</span></div>
+            <h2>Сад у моря</h2>
+            <p class="muted">⌖ Сочи · Хоста · 5 минут до моря</p>
+            <p class="features">✓ Бассейн · Завтраки включены</p>
+            <p class="features">✓ Рядом с морем · уютная атмосфера</p>
+            <div class="hotel-bottom">
+              <div><strong class="price">14 200 ₽</strong><span class="muted"> / ночь</span><p class="fineprint">71 000 ₽ за 5 ночей · ориентировочная цена</p></div>
+              <div class="rating">Превосходно <b>9.2</b><small>412 отзывов</small></div>
+            </div>
+            <span class="choose">Выбрать номер →</span>
+          </div>
+        </article>
+        <article class="hotel-card">
+          <div class="hotel-image hotel-image-three"><span class="photo-count">▧ 12 фото</span></div>
+          <div class="hotel-info">
+            <div class="hotel-top"><span>4 звезды · Бутик-отель</span><span class="heart">♡</span></div>
+            <h2>Берег и бриз</h2>
+            <p class="muted">⌖ Сочи · Адлер · 2 минуты до моря</p>
+            <p class="features">✓ Зона отдыха · Завтраки включены</p>
+            <p class="features">✓ Рядом с морем · уютная атмосфера</p>
+            <div class="hotel-bottom">
+              <div><strong class="price">10 600 ₽</strong><span class="muted"> / ночь</span><p class="fineprint">53 000 ₽ за 5 ночей · ориентировочная цена</p></div>
+              <div class="rating">Превосходно <b>9.0</b><small>198 отзывов</small></div>
+            </div>
+            <span class="choose">Выбрать номер →</span>
+          </div>
+        </article>
       </div>
     </main>
   </div>
+
+  <section id="account-panel" class="account-panel" aria-labelledby="account-title" hidden>
+    <div class="panel-header">
+      <h2 id="account-title">Мой аккаунт</h2>
+      <button id="close-panel" class="close-panel" type="button" aria-label="Свернуть панель профиля" title="Свернуть">×</button>
+    </div>
+    <p class="panel-intro">Сохраните код доступа, чтобы вернуться в аккаунт с другого устройства.</p>
+    <p class="label">Ваш ID</p>
+    <p id="user-id" class="value">Загрузка…</p>
+    <p class="label">Код доступа</p>
+    <div id="code-box" class="code-box" aria-live="polite">Загрузка…</div>
+    <button id="show-code" type="button" hidden>Показать код</button>
+    <button id="copy-code" type="button" hidden>Скопировать код</button>
+    <button id="rotate" type="button">Перевыпустить код</button>
+    <button id="open-login" type="button" class="secondary">Войти в существующий аккаунт</button>
+    <form id="login-form" hidden>
+      <label for="login-code">Код доступа</label>
+      <input id="login-code" name="code" type="text" autocomplete="off" required maxlength="256">
+      <div class="actions">
+        <button type="submit">Войти</button>
+        <button id="cancel-login" type="button" class="secondary">Отмена</button>
+      </div>
+    </form>
+    <p id="message" role="status" aria-live="polite"></p>
+  </section>
 </body>
 </html>
