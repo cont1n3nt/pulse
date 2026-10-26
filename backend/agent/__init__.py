@@ -4,7 +4,7 @@
 """
 
 from .contracts import AgentResponse, Block, ChatRequest, TripState
-from .service import get_state, handle_message, reset_session
+from .service import get_state, handle_message, reset_session, stream_message
 
-__all__ = ["handle_message", "get_state", "reset_session",
+__all__ = ["handle_message", "stream_message", "get_state", "reset_session",
            "AgentResponse", "Block", "ChatRequest", "TripState"]
