@@ -1,145 +1,32 @@
 <!doctype html>
 <html lang="ru">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f4f3ee" />
-    <title>Тихо — отели для спокойного отдыха</title>
-    <link rel="stylesheet" href="/frontend/style.css" />
-  </head>
-  <body>
-    <header class="topbar"><a class="logo" href="#">≋ тихо <sup>°</sup></a><span class="tagline">подбор отелей с ИИ</span>
-      <button class="outline new-chat" type="button">+ Новая поездка</button>
-    </header>
-    <main class="layout" id="main-layout">
-      <aside class="sidebar" id="sidebar-block">
-        <div class="sidebar-rail">
-          <button class="rail-btn" type="button" title="Ваши поездки" aria-label="Развернуть историю поездок">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
-          </button>
-          <button class="rail-btn home-btn" type="button" title="Показать отели" aria-label="Показать отели">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7" /><path d="M5 10v10h14V10" /><path d="M10 20v-5h4v5" /></svg>
-          </button>
-        </div>
-        <div class="sidebar-head">
-          <div class="sidebar-actions">
-            <button class="sidebar-toggle" id="sidebar-toggle" type="button" title="Свернуть историю поездок" aria-label="Свернуть историю поездок">»</button>
-            <button class="sidebar-toggle home-btn" type="button" title="Показать отели" aria-label="Показать отели">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7" /><path d="M5 10v10h14V10" /><path d="M10 20v-5h4v5" /></svg>
-            </button>
-          </div>
-          <p class="eyebrow">ВАШИ ПОЕЗДКИ</p>
-        </div>
-        <div class="chat-list" aria-label="Ваши чаты"></div>
-      </aside>
-      <section class="assistant panel">
-        <div class="section-head">
-          <div>
-            <h2 id="chat-title">Сентябрь у моря</h2>
-            <p class="muted">Ваши пожелания — наш маршрут</p>
-          </div><span>•••</span>
-        </div>
-        <div class="chat">
-        </div>
-        <div class="suggestions">
-          <button class="chip">Сравни пляжи</button>
-          <button class="chip">Покажи номера</button>
-          <button class="chip">Ещё дешевле</button>
-        </div>
-        <div class="chat-form">
-          <textarea placeholder="А если с видом на море?..." rows="2"></textarea>
-          <button class="send" aria-label="Отправить">↑</button>
-        </div>
-        <p class="fineprint">ИИ помогает выбрать. Решение всегда за вами.</p>
-      </section>
-      <section class="results" id="results-block">
-        <div class="results-head">
-          <button class="results-toggle" id="results-toggle" type="button" title="Свернуть результаты" aria-label="Свернуть результаты">»</button>
-          <div class="results-title">
-            <p class="eyebrow">ВАША СЛЕДУЮЩАЯ ИСТОРИЯ</p>
-            <h1>Пять дней на берегу моря</h1>
-          </div>
-        </div>
-        <div class="search-summary"><span>◎ <small>Куда</small><b>Сочи, Россия</b></span><span>▦ <small>Даты</small><b>14–19 сентября · 5 ночей</b></span><span>♙ <small>Кто едет</small><b>2 взрослых · 1 номер</b></span>
-        </div>
-        <div class="filters">
-          <button class="chip selected">До 15 000 ₽ / ночь</button>
-          <button class="chip">≋ Рядом с морем</button>
-          <button class="chip">Бассейн</button>
-          <button class="chip">Тихое место</button>
-        </div>
-        <div class="result-heading">
-          <h3>Подобрано для вас <span>3 отеля</span></h3>
-          <button class="text-button">Сначала дешевле ↕</button>
-        </div>
-        <div class="hotel-list">
-          <article class="hotel-card">
-            <div class="hotel-image" style="background-image:url('https://images.unsplash.com/photo-1571896349842-33c89424de2d?auto=format&fit=crop&w=900&q=85')"><span class="photo-count">▧ 12 фото</span>
-            </div>
-            <div class="hotel-info">
-              <div class="hotel-top"><span>4 звезды · Бутик-отель</span>
-                <button class="heart" aria-label="В избранное">♡</button>
-              </div>
-              <h2>Морская тишина</h2>
-              <p class="muted">⌖ Сочи · Мамайка · 3 минуты до моря</p>
-              <p class="features">✓ Бассейн · Завтраки включены</p>
-              <p class="features">✓ Рядом с морем · уютная атмосфера</p>
-              <div class="hotel-bottom">
-                <div><strong class="price">12 800 ₽</strong><span class="muted"> / ночь</span>
-                  <p class="fineprint">64 000 ₽ за 5 ночей · ориентировочная цена</p>
-                </div>
-                <div class="rating">Превосходно <b>9.4</b><small>286 отзывов</small>
-                </div>
-              </div>
-              <button class="choose">Выбрать номер →</button>
-            </div>
-          </article>
-          <article class="hotel-card">
-            <div class="hotel-image" style="background-image:url('https://images.unsplash.com/photo-1575429198097-0414ec08e8cd?auto=format&fit=crop&w=900&q=85')"><span class="photo-count">▧ 12 фото</span>
-            </div>
-            <div class="hotel-info">
-              <div class="hotel-top"><span>5 звёзд · Бутик-отель</span>
-                <button class="heart" aria-label="В избранное">♡</button>
-              </div>
-              <h2>Сад у моря</h2>
-              <p class="muted">⌖ Сочи · Хоста · 5 минут до моря</p>
-              <p class="features">✓ Бассейн · Завтраки включены</p>
-              <p class="features">✓ Рядом с морем · уютная атмосфера</p>
-              <div class="hotel-bottom">
-                <div><strong class="price">14 200 ₽</strong><span class="muted"> / ночь</span>
-                  <p class="fineprint">71 000 ₽ за 5 ночей · ориентировочная цена</p>
-                </div>
-                <div class="rating">Превосходно <b>9.2</b><small>412 отзывов</small>
-                </div>
-              </div>
-              <button class="choose">Выбрать номер →</button>
-            </div>
-          </article>
-          <article class="hotel-card">
-            <div class="hotel-image" style="background-image:url('https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=900&q=85')"><span class="photo-count">▧ 12 фото</span>
-            </div>
-            <div class="hotel-info">
-              <div class="hotel-top"><span>4 звезды · Бутик-отель</span>
-                <button class="heart" aria-label="В избранное">♡</button>
-              </div>
-              <h2>Берег и бриз</h2>
-              <p class="muted">⌖ Сочи · Адлер · 2 минуты до моря</p>
-              <p class="features">✓ Зона отдыха · Завтраки включены</p>
-              <p class="features">✓ Рядом с морем · уютная атмосфера</p>
-              <div class="hotel-bottom">
-                <div><strong class="price">10 600 ₽</strong><span class="muted"> / ночь</span>
-                  <p class="fineprint">53 000 ₽ за 5 ночей · ориентировочная цена</p>
-                </div>
-                <div class="rating">Превосходно <b>9.0</b><small>198 отзывов</small>
-                </div>
-              </div>
-              <button class="choose">Выбрать номер →</button>
-            </div>
-          </article>
-        </div>
-      </section>
-    </main>
-    <script src="/frontend/app.js" defer></script>
-    <script src="/frontend/ui.js" defer></script>
-  </body>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Мой аккаунт</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <main class="card">
+    <h1>Мой аккаунт</h1>
+    <p class="label">Ваш ID</p>
+    <p id="user-id" class="value">Загрузка…</p>
+    <p class="label">Код доступа</p>
+    <div id="code-box" class="code-box" aria-live="polite">Загрузка…</div>
+    <button id="show-code" type="button" hidden>Показать код</button>
+    <button id="copy-code" type="button" hidden>Скопировать код</button>
+    <button id="rotate" type="button">Перевыпустить код</button>
+    <button id="open-login" type="button" class="secondary">Войти в существующий аккаунт</button>
+    <form id="login-form" hidden>
+      <label for="login-code">Код доступа</label>
+      <input id="login-code" name="code" type="text" autocomplete="off" required maxlength="256">
+      <div class="actions">
+        <button type="submit">Войти</button>
+        <button id="cancel-login" type="button" class="secondary">Отмена</button>
+      </div>
+    </form>
+    <p id="message" role="status" aria-live="polite"></p>
+  </main>
+</body>
 </html>
