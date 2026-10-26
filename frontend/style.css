@@ -13,37 +13,23 @@ button, input { font: inherit; }
 button { cursor: pointer; }
 button[hidden], form[hidden], .account-panel[hidden] { display: none; }
 
-.topbar {
-  height: 64px;
-  padding: 0 28px;
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  border-bottom: 1px solid #e9e7e0;
-  background: #fff;
-}
-.logo { color: #245f5d; font-size: 24px; font-weight: 800; white-space: nowrap; }
-.logo sup { font-size: 12px; }
-.tagline { color: #8b9691; font-size: 12px; flex: 1; }
-.topbar-note { color: #78918a; font-size: 11px; }
-
 .layout {
   display: grid;
-  grid-template-columns: 180px 350px minmax(0, 1fr);
+  grid-template-columns: 180px minmax(0, 1fr);
   gap: 20px;
   max-width: 1600px;
-  min-height: calc(100vh - 64px);
+  min-height: 100dvh;
   margin: 0 auto;
   padding: 22px;
 }
 .sidebar {
-  min-width: 0;
+  width: 168px;
   display: flex;
   flex-direction: column;
-  align-self: start;
-  position: sticky;
-  top: 86px;
-  height: calc(100vh - 108px);
+  position: fixed;
+  top: 22px;
+  bottom: 22px;
+  left: max(22px, calc((100vw - 1600px) / 2 + 22px));
   border-right: 1px solid #e8e6df;
   padding-right: 12px;
 }
@@ -76,7 +62,7 @@ button[hidden], form[hidden], .account-panel[hidden] { display: none; }
 .profile-toggle:hover, .profile-toggle[aria-expanded="true"] { background: #e4eeea; }
 
 .panel { padding: 17px; border: 1px solid #e9e6de; border-radius: 17px; background: #fffdfa; }
-.assistant { display: flex; flex-direction: column; min-height: 650px; }
+.assistant { grid-column: 2; display: flex; flex-direction: column; width: min(100%, 820px); min-height: calc(100dvh - 44px); margin: 0 auto; }
 .section-head { display: flex; justify-content: space-between; padding-bottom: 13px; border-bottom: 1px solid #eceae3; }
 .section-head h2 { margin: 0 0 4px; font: 20px "Playfair Display", serif; }
 .section-head p { margin: 0; font-size: 10px; }
@@ -104,88 +90,62 @@ button[hidden], form[hidden], .account-panel[hidden] { display: none; }
 .fineprint { color: #9aa39e; font-size: 9px; }
 .assistant-note { text-align: center; }
 
-.results { min-width: 0; }
-.results-head { margin-bottom: 15px; }
-.results-head .eyebrow { margin: 0 0 4px; }
-.results h1 { margin: 0; font: 30px "Playfair Display", serif; }
-.search-summary { display: flex; flex-wrap: wrap; gap: 12px; padding: 14px; border-radius: 12px; background: #eae9df; }
-.search-summary span { flex: 1; min-width: 110px; font-size: 12px; }
-.search-summary small, .search-summary b { display: block; margin-top: 4px; }
-.search-summary small { color: #7c8982; font-size: 10px; }
-.search-summary b { font-size: 11px; font-weight: 500; }
-.filters { margin: 12px 0 19px; }
-.result-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
-.result-heading h3 { margin: 0; font-size: 14px; font-weight: 500; }
-.result-heading h3 span { margin-left: 5px; color: #8b9691; font-size: 10px; }
-.text-button { color: #315f5b; font-size: 12px; white-space: nowrap; }
-.hotel-list { display: grid; gap: 12px; }
-.hotel-card { display: grid; grid-template-columns: 37% minmax(0, 1fr); min-height: 190px; overflow: hidden; border: 1px solid #e6e6df; border-radius: 15px; background: #fff; }
-.hotel-image { min-height: 190px; position: relative; background-size: cover; background-position: center; background-color: #c6d6cd; }
-.hotel-image-one { background-image: url('https://images.unsplash.com/photo-1571896349842-33c89424de2d?auto=format&fit=crop&w=900&q=85'); }
-.hotel-image-two { background-image: url('https://images.unsplash.com/photo-1575429198097-0414ec08e8cd?auto=format&fit=crop&w=900&q=85'); }
-.hotel-image-three { background-image: url('https://images.unsplash.com/photo-1570077188670-e3a8d69ac5ff?auto=format&fit=crop&w=900&q=85'); }
-.photo-count { position: absolute; bottom: 10px; left: 10px; padding: 5px 7px; border-radius: 6px; background: #fff; font-size: 10px; }
-.hotel-info { min-width: 0; padding: 12px 14px; }
-.hotel-top { display: flex; justify-content: space-between; align-items: center; color: #7b8982; font-size: 10px; }
-.heart { color: #73827b; font-size: 22px; line-height: 1; }
-.hotel-info h2 { margin: 3px 0 6px; font: 22px "Playfair Display", serif; }
-.hotel-info p { margin: 5px 0; }
-.features { color: #557a6e; font-size: 10px; }
-.hotel-bottom { display: flex; align-items: end; justify-content: space-between; gap: 8px; margin-top: 12px; }
-.price { font-size: 22px; font-weight: 700; }
-.hotel-bottom .fineprint { margin: 4px 0 0; }
-.rating { text-align: right; font-size: 10px; }
-.rating b { margin-left: 5px; padding: 7px; border-radius: 7px; background: #e4efeb; }
-.rating small { display: block; margin-top: 5px; color: #8b9691; }
-.choose { display: block; width: fit-content; margin: 8px 0 0 auto; padding: 10px 12px; border-radius: 7px; background: #286a65; color: #fff; font-size: 10px; }
-
 .account-panel {
   position: fixed;
-  top: 76px;
-  bottom: 12px;
-  left: max(12px, calc((100vw - 1600px) / 2 + 22px));
+  top: 22px;
+  left: max(202px, calc((100vw - 1600px) / 2 + 202px));
   z-index: 10;
-  width: min(420px, calc(100vw - 24px));
+  width: min(340px, calc(100vw - 214px));
+  max-height: calc(100dvh - 44px);
   overflow-y: auto;
-  padding: 26px;
+  padding: 18px;
   border: 1px solid #e9e6de;
-  border-radius: 17px;
+  border-radius: 15px;
   background: #fffdfa;
   box-shadow: 0 16px 48px #293f3e33;
 }
-.panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.panel-header h2 { margin: 0; font: 24px "Playfair Display", serif; }
-.account-panel .close-panel { width: 34px; height: 34px; margin: 0; padding: 0; border: 0; border-radius: 8px; background: #e4eeea; color: #315f5b; font-size: 24px; line-height: 1; }
+.panel-header { display: flex; align-items: center; gap: 9px; min-height: 34px; cursor: grab; touch-action: none; user-select: none; }
+.account-panel.dragging .panel-header { cursor: grabbing; }
+.drag-grip { width: 17px; height: 4px; flex: 0 0 17px; border-radius: 4px; background: #a7c7be; }
+.panel-header h2 { flex: 1; margin: 0; font: 20px "Playfair Display", serif; }
+.account-panel .close-panel { width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: 8px; background: #e4eeea; color: #315f5b; font-size: 21px; line-height: 1; cursor: pointer; }
 .account-panel .close-panel:hover { background: #d5e5de; }
-.panel-intro { margin: 10px 0 26px; color: #7c8d87; font-size: 12px; line-height: 1.6; }
-.label { margin: 20px 0 5px; color: #7c8d87; font-size: 11px; }
+.panel-intro { margin: 8px 0 17px; color: #7c8d87; font-size: 11px; line-height: 1.5; }
+.label { margin: 14px 0 5px; color: #7c8d87; font-size: 11px; }
 .value, .code-box { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: 12px; }
-.code-box { min-height: 48px; padding: 12px; border: 1px solid #e6e6df; border-radius: 9px; background: #f4f3ee; }
-.account-panel button:not(.close-panel) { width: 100%; margin-top: 12px; padding: 10px 12px; border: 0; border-radius: 8px; background: #286a65; color: #fff; font-size: 12px; }
-.account-panel button:not(.close-panel):hover { background: #205954; }
-.account-panel button.secondary { background: #e4eeea; color: #315f5b; }
-.account-panel button.secondary:hover { background: #d5e5de; }
-.account-panel form { margin-top: 24px; padding-top: 20px; border-top: 1px solid #e9e6de; font-size: 12px; }
-.account-panel input { width: 100%; margin-top: 7px; padding: 11px; border: 1px solid #a7c7be; border-radius: 8px; background: #fff; }
-.actions { display: flex; gap: 10px; }
+.account-panel .code-box { display: block; width: 100%; min-height: 42px; padding: 10px; border: 1px solid #e6e6df; border-radius: 9px; background: #f4f3ee; color: #293f3e; text-align: left; cursor: copy; }
+.account-panel .code-box:hover:not(:disabled) { border-color: #6a9b94; background: #eaf1ec; }
+.account-panel .code-box:disabled { cursor: default; }
+.account-panel button:not(.close-panel):not(.code-box) { width: 100%; margin-top: 9px; padding: 9px 11px; border: 0; border-radius: 8px; background: #286a65; color: #fff; font-size: 12px; }
+.account-panel button:not(.close-panel):not(.code-box):hover { background: #205954; }
+.account-panel button.secondary:not(.close-panel):not(.code-box) { background: #e4eeea; color: #315f5b; }
+.account-panel button.secondary:not(.close-panel):not(.code-box):hover { background: #d5e5de; }
+.account-panel form { margin-top: 14px; font-size: 12px; }
+.account-panel input { width: 100%; margin-top: 8px; padding: 12px; border: 1px solid #a7c7be; border-radius: 8px; background: #fff; font-size: 16px; }
+.account-panel input:focus-visible { outline: 2px solid #286a65; outline-offset: 2px; }
+.account-panel #toggle-login-code { width: auto; margin-top: 8px; padding: 4px 0; background: transparent; color: #315f5b; text-align: left; }
+.account-panel #toggle-login-code:hover { background: transparent; text-decoration: underline; }
+.form-error { margin: 12px 0 0; color: #a32929; font-size: 12px; line-height: 1.5; }
+.form-error[hidden], #login-view[hidden], #account-view[hidden] { display: none; }
+.account-panel button:disabled { opacity: .65; cursor: wait; }
 #message { min-height: 1.4em; color: #a32929; font-size: 12px; }
 
 @media (max-width: 1050px) {
   .layout { grid-template-columns: 150px minmax(0, 1fr); }
-  .results { grid-column: 1 / -1; }
+  .sidebar { width: 138px; }
+  .account-panel { left: 172px; width: min(340px, calc(100vw - 184px)); }
 }
 @media (max-width: 650px) {
-  .topbar { padding: 0 14px; gap: 12px; }
-  .tagline { display: none; }
   .layout { grid-template-columns: 54px minmax(0, 1fr); gap: 12px; padding: 12px; }
-  .sidebar { grid-row: 1 / 3; top: 76px; height: calc(100vh - 88px); padding-right: 7px; }
+  .sidebar { top: 8px; bottom: 8px; left: 8px; width: 46px; padding-right: 5px; }
   .sidebar-main { display: none; }
   .profile-toggle { justify-content: center; padding: 10px; }
   .profile-toggle span { display: none; }
-  .assistant { min-height: 400px; }
-  .results { grid-column: 2; }
-  .results h1 { font-size: 25px; }
-  .hotel-card { grid-template-columns: 1fr; }
-  .hotel-image { min-height: 190px; }
-  .account-panel { top: 72px; bottom: 8px; left: 8px; width: calc(100vw - 16px); padding: 20px; }
+  .assistant { min-height: calc(100dvh - 24px); }
+  .account-panel { top: 12px; left: 64px; width: min(310px, calc(100vw - 76px)); max-height: calc(100dvh - 24px); padding: 15px; }
+}
+@media (max-width: 380px) {
+  .layout { gap: 8px; padding: 8px; }
+  .assistant { padding: 13px; }
+  .bubble { max-width: 95%; }
 }
