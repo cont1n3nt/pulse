@@ -2,74 +2,116 @@
 
 ## Для бэка: вся интеграция
 
+Агент отдаёт поток событий (SSE), бэк пересылает их клиенту и сохраняет текст ответа в историю чата.
+Роуты — в `backend/endpoints.py`, все требуют cookie-сессию и проверяют, что чат принадлежит пользователю.
+ID чата служит `session_id` агента.
+
+| Роут | Что делает |
+|---|---|
+| `POST /api/chat` `{session_id, message}` | сообщение пользователя → поток событий |
+| `POST /api/chats/{id}/checkout` `{approved}` | кнопка «Оплатить» / «Отмена» → поток событий |
+| `GET /api/chats/{id}` | история чата + `trip`: выдача, корзина, заказы, ожидающее подтверждение |
+| `GET /api/orders/{id}` | заказ (`Order`) |
+
 ```python
-from backend.agent import handle_message, get_state, ChatRequest, AgentResponse, TripState
-
-@app.post("/api/chat", response_model=AgentResponse)
-def chat(req: ChatRequest):
-    return handle_message(req.session_id, req.message)
-
-@app.get("/api/trip/{session_id}", response_model=TripState)
-def trip(session_id: str):
-    return get_state(session_id)
+from backend.agent import stream_message, resume_checkout, pending_checkout, get_state, get_order
 ```
 
-Рабочий пример — `docs/api_example.py`. Роут объявлять через `def`, не `async def`:
-агент синхронный, FastAPI сам вынесет его в пул потоков.
+Бэк добавляет к потоку событие `chat` (обновлённые название и дата чата) перед `done`.
 
-Ответ `/api/chat`:
-```json
-{
-  "session_id": "abc",
-  "message": "Самый дешёвый — ЮТэйр 22 ноября за 2406 ₽…",
-  "blocks": [{"type": "flights", "data": {"items": [ {FlightOption}, … ]}}],
-  "state": {TripState},
-  "tool_calls": ["resolve_city", "search_flights"]
-}
-```
+Роуты объявлять через `def`, не `async def`: агент синхронный, FastAPI сам вынесет его в пул потоков.
+Для CLI и синхронного API есть `handle_message(session_id, text) -> AgentResponse`: тот же поток, собранный в один ответ
+(пример — `docs/api_example.py`).
 
-`message` — текст в чат, `blocks` — что рисовать карточками, `state` — текущий план.
-Агент никогда не отдаёт 500: при сбое приходит блок `{"type": "error", "data": {"detail": "agent_failed"}}`.
-Подробности ошибки (стек) пишутся только в лог сервера, клиенту они не уходят.
+### События потока
 
-Ограничения текущей версии:
-- Сессии и история диалога хранятся в памяти процесса: после перезапуска (в т.ч. `--reload`) они теряются.
-  Запускать нужно одним воркером. Запросы внутри одной сессии обрабатываются по очереди.
-- Нужна модель с поддержкой tool calling, иначе агент ответит текстом без поиска.
-- Цены Aviasales берутся из кэша и ориентировочные; наличие багажа неизвестно.
+| `type` | Поля | Когда |
+|---|---|---|
+| `reasoning` | — | агент начал работу |
+| `tool` | `name` | инструмент отработал |
+| `block` | `block`, данные | карточки: `hotels`/`flights` (`items`), `cart` (`items`, `total_rub`, `issues`), `order` (`order`) |
+| `token` | `text` | кусок ответа модели |
+| `confirm` | `action: "checkout"`, `items`, `total_rub`, `issues` | агент ждёт подтверждения оплаты кнопкой |
+| `error` | `detail` | сбой; стек пишется только в лог сервера |
+| `done` | — | ход закончен |
+
+## Состояние поездки
+
+`TripState` хранится в состоянии графа LangGraph (поле `trip`) и сохраняется чекпоинтером в
+`backend/data/agent_memory.db` вместе с историей диалога, поэтому переживает перезапуск сервера.
+
+- Инструменты не меняют состояние напрямую. Они возвращают **операции** (`requirements`, `hotels`, `flights`,
+  `cart_add`, `cart_remove`, `order`), а reducer `trip.reduce_trip` применяет их по очереди. Параллельные вызовы
+  инструментов не затирают друг друга.
+- После каждой операции пересчитываются производные поля: итог корзины, проблемы (`issues`) и этап (`stage`).
+  Этап `checkout` выставляет сервис, пока граф ждёт подтверждения.
+- Сводка состояния добавляется в системный промпт на каждом шаге: модель не держит условия в памяти, а читает их.
+- Поиск без аргументов берёт сохранённые требования. Повторный поиск сравнивает выдачу с прошлой (`diff_hotels`),
+  поэтому пересборка плана говорит, что изменилось.
+
+## Проверка поездки (`trip.validate`)
+
+Чистый Python, без LLM. Уровни: `blocker` (оформить нельзя), `warning`, `info`.
+
+| Код | Уровень | Что проверяется |
+|---|---|---|
+| `no_hotel` | blocker | в корзине нет отеля |
+| `dates_mismatch` | blocker | даты отеля ≠ дате поездки (например, после «на два дня позже») |
+| `unavailable` / `price_changed` | blocker / warning | перепроверка наличия и цены на те же даты |
+| `amenity_*`, `hostel_with_kids` | blocker / warning | обязательные условия (дети, животные…) нет / не подтверждены |
+| `late_arrival`, `early_arrival` | blocker | прилёт не в день заезда |
+| `early_checkin` | warning | прилёт + трансфер сильно раньше 14:00 |
+| `late_departure`, `unused_night` | blocker / warning | обратный вылет не в день выезда |
+| `late_checkout` | info | между выездом в 12:00 и дорогой в аэропорт больше 3 часов |
+| `over_budget` | warning | итог (отель + билеты на всех гостей) больше бюджета |
+| `capacity_unknown`, `flight_price_unknown` | info | данных нет, честно говорим об этом |
+
+Время сравнивается в часовом поясе курорта; параметры локации (часы заселения, аэропорт, скорость трансфера) — в
+`adapters/hotels.py`.
+
+## Оформление заказа
+
+1. `checkout` проверяет поездку. Есть `blocker` — заказ не оформляется, модель получает причины.
+2. Иначе инструмент вызывает `interrupt()`: граф останавливается, клиент получает событие `confirm`.
+3. Кнопка шлёт `POST /api/sessions/{id}/checkout`. Граф продолжается с того же места, и инструмент выполняется
+   заново с начала (поэтому до `interrupt()` у него нет побочных эффектов).
+4. При подтверждении `orders.create` пишет заказ в `backend/data/orders.db`. Повторное подтверждение той же версии корзины
+   возвращает тот же заказ. Оплата имитируется (`payment: "simulated"`).
+
+Если вместо кнопки пользователь пишет новое сообщение, это отказ от оплаты: текст уходит модели вместе с отказом
+(после проверки входным фильтром).
 
 ## Структура
 
 ```
 backend/
-  main.py          FastAPI-приложение (роуты /api/chat и /api/trip подключает бэк)
+  main.py          FastAPI: SSE-роуты, состояние, заказы
   agent/
-  __init__.py      публичный интерфейс — бэк импортирует только отсюда
-  contracts.py     ДОГОВОР: TripState, FlightOption, Block, AgentResponse (менять вдвоём)
-  service.py       handle_message: агент → блоки → состояние
-  config.py        env + make_llm (OpenAI-совместимый)
-  prompts.py       системный промпт
-  reference.py     справочники городов/авиакомпаний → backend/seed/ (скачиваются при первом обращении)
-  adapters/        сырой API → стандартные модели (по файлу на источник)
-  tools/           инструменты агента
+    __init__.py    публичный интерфейс — бэк импортирует только отсюда
+    contracts.py   ДОГОВОР: TripState, CartItem, Issue, Order, Block (менять вдвоём)
+    service.py     граф агента, состояние в чекпоинте, поток событий, подтверждение оплаты
+    trip.py        операции над состоянием, проверка поездки, сводка для модели (без LangChain)
+    orders.py      заказы в SQLite с защитой от повторного создания
+    config.py      env + make_llm (OpenAI-совместимый)
+    prompts.py     системный промпт
+    guardrails.py  фильтр входа, лимиты вызовов, очистка внешних данных
+    reference.py   справочники городов/авиакомпаний → backend/seed/
+    adapters/      сырой источник → стандартные модели (по файлу на источник)
+    tools/         инструменты агента; _state.py — общее для работы с состоянием
 docs/
-  cli.py           терминал — вызывает ту же handle_message
-  api_example.py   пример FastAPI для бэка
+  cli.py           терминал — тот же агент, подтверждение оплаты через y/n
+  api_example.py   пример синхронного FastAPI
+tests/             unit-тесты проверки и заказов, сквозной сценарий на фейковой модели
 ```
 
-Файлы внутри `agent/` в схеме выше сдвинуты на один уровень для краткости: на деле они лежат в `backend/agent/`.
+## Как добавить новый источник (например, трансферы)
 
-## Как добавить новый источник (например, отели)
+1. `adapters/<источник>.py` → функция, возвращающая модели из `contracts.py`.
+2. `tools/<источник>.py` → `@tool` с параметром `runtime: ToolRuntime`. Результат — `result(runtime, name, text, ops)`
+   из `tools/_state.py`, карточки — `emit(runtime, "<блок>", ...)`. Добавить в `TOOLS` и в `service.TOOLS`.
+3. Новая операция над состоянием — ветка в `trip.apply`, новая проверка — функция в `trip.validate`.
 
-1. `adapters/hotels.py` → функция `fetch_hotels(...) -> list[HotelOption]`.
-2. `tools/hotels.py` → `@tool(response_format="content_and_artifact")`,
-   возвращает `(короткий текст для модели, [h.model_dump(mode="json") ...])`. Добавить в `TOOLS`.
-3. `service.py` → в цикле по `ToolMessage` добавить ветку `m.name == "search_hotels"`:
-   положить в `state.hotels` и добавить `Block(type="hotels", ...)`.
-
-Бэк и фронт при этом ничего не меняют.
-
-## Запуск
+## Запуск и тесты
 
 Из корня проекта:
 
@@ -77,6 +119,12 @@ docs/
 uv sync
 cp .env.example .env    # вписать ключи (LLM_API_KEY, TRAVELPAYOUTS_TOKEN)
 uv run python -m docs.cli
+uv run pytest           # без ключей: модель в сквозном тесте фейковая
 ```
 
-Без uv: `python -m pip install -r requirements.txt`, затем `python -m docs.cli`.
+После обновления с прежней версии удалите `backend/data/agent_memory.db`: в старых сессиях нет состояния поездки.
+
+Ограничения текущей версии:
+- Запускать одним воркером: запросы внутри одной сессии обрабатываются по очереди через блокировку в процессе.
+- Нужна модель с поддержкой tool calling, иначе агент ответит текстом без поиска.
+- Цены Aviasales берутся из кэша и ориентировочные; наличие багажа неизвестно. Цены отелей — демо.

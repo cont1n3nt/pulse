@@ -6,5 +6,9 @@ __pycache__/
 *.env
 *.sqlite3
 
-# кэш справочников Travelpayouts (скачивается при первом запуске)
-backend/seed/
+# кэш справочников Travelpayouts (скачивается при первом запуске).
+# backend/seed/sochi/ — данные отелей из OpenStreetMap — хранится в репозитории
+backend/seed/*_ru.json
+
+# базы агента: память диалогов и заказы
+backend/data/

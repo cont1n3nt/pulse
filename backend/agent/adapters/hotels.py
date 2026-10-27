@@ -1,4 +1,10 @@
-"""Моковый поиск отелей Большого Сочи: цены, наличие, питание и отмена считаются детерминированно."""
+"""Поиск отелей Большого Сочи.
+
+Объекты, адреса, координаты, звёзды, сайты и факты о расположении — реальные, из OpenStreetMap
+(seed/sochi/hotels.json, выгрузка scripts/fetch_osm_sochi.py, © участники OpenStreetMap, ODbL).
+Цена, наличие, питание и условия отмены — демо-модель: считаются детерминированно, поэтому
+повторный поиск с теми же условиями даёт те же цены.
+"""
 
 import hashlib
 import json
@@ -29,11 +35,40 @@ _COAST = {1: 0.7, 2: 0.7, 3: 0.7, 4: 0.7, 5: 1.0, 6: 1.3, 7: 1.6, 8: 1.6,
 _MOUNTAIN = {1: 1.6, 2: 1.6, 3: 1.4, 4: 0.7, 5: 0.7, 6: 0.9, 7: 1.1, 8: 1.1,
              9: 0.9, 10: 0.7, 11: 0.7, 12: 1.6}
 
+# Демо-модель цены за ночь в межсезонье (коэффициент сезона 1.0). Допущения, а не статистика:
+# порядок цен для Сочи, чтобы выдача и бюджеты выглядели правдоподобно. Класс — звёзды из OSM,
+# а где их нет — оценка выгрузки по типу объекта и известным сетям (price_class).
+BASE_PRICE_BY_CLASS = {1: 1800, 2: 3200, 3: 5000, 4: 8500, 5: 16000}
+KIND_FACTOR = {"hostel": 0.8, "guest_house": 0.95, "apartment": 1.0, "hotel": 1.0, "resort": 1.15}
+DISTRICT_FACTOR = {"Центр": 1.1, "Сириус": 1.15, "Красная Поляна": 1.1, "Адлер": 1.0,
+                   "Хоста": 0.95, "Лазаревское": 0.85}
+
+
+def sea_factor(distance_m: int | None) -> float:
+    if distance_m is None:
+        return 1.0  # горы: море не влияет
+    if distance_m <= 300:
+        return 1.2
+    if distance_m <= 800:
+        return 1.05
+    return 0.85 if distance_m > 2000 else 1.0
+
+
+def base_price(raw: dict) -> int:
+    """Базовая цена объекта: класс × тип × район × близость к морю × индивидуальный разброс ±15%."""
+    price = (BASE_PRICE_BY_CLASS[raw.get("price_class") or 3] * KIND_FACTOR[raw["kind"]]
+             * DISTRICT_FACTOR.get(raw["district"], 1.0) * sea_factor(raw.get("distance_to_sea_m"))
+             * (0.85 + 0.3 * h(raw["id"], "base")))
+    return round(price / 100) * 100
+
 
 @lru_cache
 def _load() -> tuple[dict, ...]:
     with open(SEED_DIR / "sochi" / "hotels.json", encoding="utf-8") as f:
-        return tuple(sanitize_hotel(raw) for raw in json.load(f))
+        hotels = [sanitize_hotel(raw) for raw in json.load(f)]
+    for raw in hotels:
+        raw["price_from_rub"] = base_price(raw)
+    return tuple(hotels)
 
 
 def h(*parts) -> float:
@@ -110,9 +145,65 @@ def search(check_in: date, check_out: date, district: str | None = None,
         if max_price_per_night is not None and hotel.price_per_night_rub > max_price_per_night:
             continue
         unconfirmed = any(raw["amenities"].get(code) is not True for code in must_have)
-        found.append((unconfirmed, hotel.price_per_night_rub, hotel))
-    found.sort(key=lambda t: (t[0], t[1]))
-    return [hotel for _, _, hotel in found[:limit]]
+        found.append((raw, hotel, unconfirmed))
+    if not found:
+        return []
+    prices = sorted(hotel.price_per_night_rub for _, hotel, _ in found)
+    # ориентир цены: большая часть лимита за ночь, а без лимита — середина выдачи
+    target = 0.7 * max_price_per_night if max_price_per_night else prices[len(prices) // 2]
+    ranked = sorted(found, key=lambda t: score(t[0], t[1].price_per_night_rub, target, t[2]), reverse=True)
+    return diverse([hotel for _, hotel, _ in ranked], limit)
+
+
+# Порядок выдачи. Самые дешёвые первыми — это всегда хостелы и безымянные комнаты, даже при
+# большом бюджете. Поэтому: цена ближе к ориентиру, выше класс, больше известно, ближе к морю.
+SCORE_WEIGHTS = {"price": 0.45, "class": 0.25, "known": 0.15, "sea": 0.15}
+UNCONFIRMED_PENALTY = 0.2  # обязательное удобство не подтверждено картой
+HOSTEL_PENALTY = 0.25  # общие комнаты — только если ничего другого нет по цене
+MAX_SAME_KIND = 2
+
+
+def completeness(raw: dict) -> int:
+    """Сколько об объекте известно из OSM (0–4): о таких можно рассказать и их можно проверить."""
+    return sum((bool(raw.get("address")), bool(raw.get("website")), bool(raw.get("stars")),
+                raw["amenities"].get("wifi") is not None))
+
+
+def sea_score(distance_m: int | None) -> float:
+    if distance_m is None:
+        return 0.5  # горы: близость к морю не про них
+    if distance_m <= 300:
+        return 1.0
+    if distance_m <= 800:
+        return 0.7
+    return 0.4 if distance_m <= 2000 else 0.1
+
+
+def score(raw: dict, price: int, target: float, unconfirmed: bool) -> float:
+    price_fit = max(0.0, 1 - abs(price - target) / target)
+    value = (SCORE_WEIGHTS["price"] * price_fit
+             + SCORE_WEIGHTS["class"] * (raw.get("price_class") or 3) / 5
+             + SCORE_WEIGHTS["known"] * completeness(raw) / 4
+             + SCORE_WEIGHTS["sea"] * sea_score(raw.get("distance_to_sea_m")))
+    if unconfirmed:
+        value -= UNCONFIRMED_PENALTY
+    if raw["kind"] == "hostel":
+        value -= HOSTEL_PENALTY
+    return value
+
+
+def diverse(ranked: list[HotelOption], limit: int) -> list[HotelOption]:
+    """Не больше двух объектов одного типа, пока есть из чего выбрать: пять гостевых домов
+    подряд — не сравнение."""
+    picked, rest = [], []
+    for hotel in ranked:
+        if sum(p.kind == hotel.kind for p in picked) < MAX_SAME_KIND:
+            picked.append(hotel)
+        else:
+            rest.append(hotel)
+        if len(picked) == limit:
+            return picked
+    return picked + rest[:limit - len(picked)]
 
 
 def quote(hotel_id: str, check_in: date, check_out: date) -> HotelOption | None:
