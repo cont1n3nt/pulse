@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 PATTERNS_FILE = Path(__file__).resolve().parent / "guard_patterns.json"
 MAX_INPUT_CHARS = 2000
 
-REFUSAL = ("Я помогаю только с подбором отелей и поездок по Большому Сочи. "
+REFUSAL = ("Я помогаю только с подбором отелей и поездок. "
            "Расскажите, когда и с кем хотите поехать, и я подберу варианты.")
 BLOCKED_PLACEHOLDER = "[сообщение отклонено фильтром безопасности]"
 

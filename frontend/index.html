@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f4f3ee">
-  <title>Тихо — мой аккаунт</title>
+  <title>Тихо — подбор поездки</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
 </head>
@@ -28,29 +28,62 @@
 
     <main class="assistant" aria-label="Помощник">
       <div class="section-head">
-        <div>
+        <div class="section-title">
           <h2 id="chat-title">Загрузка чатов…</h2>
           <p class="muted">Ваши пожелания — наш маршрут</p>
         </div>
-        <span class="section-more" aria-hidden="true">•••</span>
+        <button id="trip-toggle" class="trip-toggle" type="button" aria-controls="trip-panel" aria-expanded="false">
+          Поездка <span id="trip-badge" class="trip-badge" hidden></span>
+        </button>
       </div>
       <div id="chat-messages" class="chat-preview" role="log" aria-label="Сообщения чата" aria-live="polite">
-        <p id="chat-empty" class="chat-empty">Напишите сообщение — пока я повторю его в ответ.</p>
+        <p id="chat-empty" class="chat-empty">Опишите поездку своими словами: когда, с кем и на какой бюджет. Например: «В Сочи на майские, двое с ребёнком, до 80 тысяч».</p>
       </div>
       <div class="suggestions" aria-label="Примеры запросов">
-        <span class="chip">Сравни пляжи</span>
-        <span class="chip">Покажи номера</span>
-        <span class="chip">Ещё дешевле</span>
+        <button class="chip" type="button" data-prompt="Хочу к морю в Сочи на выходные, нас двое, бюджет до 40 тысяч">К морю на выходные</button>
+        <button class="chip" type="button" data-prompt="Найди что-нибудь подешевле">Ещё дешевле</button>
+        <button class="chip" type="button" data-prompt="А если на два дня позже?">На два дня позже</button>
+        <button class="chip" type="button" data-prompt="Оформляй">Оформить</button>
       </div>
       <form id="chat-form" class="chat-form-preview">
-        <textarea id="chat-input" rows="2" maxlength="5000" aria-label="Сообщение" placeholder="А если с видом на море?..." required></textarea>
+        <textarea id="chat-input" rows="2" maxlength="5000" aria-label="Сообщение" placeholder="Куда, когда и с кем хотите поехать?" required></textarea>
         <button id="chat-send" class="send" type="submit" aria-label="Отправить сообщение" disabled>↑</button>
       </form>
       <p id="chat-error" class="chat-error" role="status" hidden></p>
-      <p class="fineprint assistant-note">ИИ помогает выбрать. Решение всегда за вами.</p>
+      <p class="fineprint assistant-note">ИИ помогает выбрать. Решение всегда за вами. Отели — OpenStreetMap, цены и наличие — демо.</p>
     </main>
 
+    <aside id="trip-panel" class="trip-panel" aria-labelledby="trip-title">
+      <div class="trip-head">
+        <div>
+          <p class="eyebrow">ВАША ПОЕЗДКА</p>
+          <h2 id="trip-title">Пока пусто</h2>
+        </div>
+        <button id="trip-close" class="trip-close" type="button" aria-label="Скрыть поездку">×</button>
+      </div>
+      <div class="trip-body">
+        <p id="trip-empty" class="trip-empty">Здесь появятся подобранные отели, корзина и заказы.</p>
+        <section id="trip-orders-section" class="trip-section" hidden>
+          <h3>Заказы</h3>
+          <div id="trip-orders"></div>
+        </section>
+        <section id="trip-cart-section" class="trip-section" hidden>
+          <h3>Корзина</h3>
+          <div id="trip-cart"></div>
+        </section>
+        <section id="trip-hotels-section" class="trip-section" hidden>
+          <h3>Варианты <span id="hotel-count" class="muted"></span></h3>
+          <div id="hotel-list" class="hotel-list"></div>
+        </section>
+        <section id="trip-flights-section" class="trip-section" hidden>
+          <h3>Перелёты</h3>
+          <div id="flight-list" class="flight-list"></div>
+        </section>
+        <p class="attribution">Отели и расстояния: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">участники OpenStreetMap</a>, ODbL. Цены, наличие, питание и отмена — демо.</p>
+      </div>
+    </aside>
   </div>
+  <div id="trip-backdrop" class="trip-backdrop" hidden></div>
 
   <section id="account-panel" class="account-panel" aria-labelledby="account-title" hidden>
     <div id="panel-drag" class="panel-header" aria-label="Перетащить панель аккаунта">

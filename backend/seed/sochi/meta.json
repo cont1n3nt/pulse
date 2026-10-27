@@ -1,0 +1,40 @@
+{
+ "source": "OpenStreetMap, Overpass API",
+ "license": "ODbL 1.0, © участники OpenStreetMap — https://www.openstreetmap.org/copyright",
+ "exported_at": "2026-10-27T01:28:08+00:00",
+ "hotels": 1358,
+ "by_district": {
+  "Адлер": 257,
+  "Красная Поляна": 195,
+  "Лазаревское": 498,
+  "Сириус": 198,
+  "Хоста": 104,
+  "Центр": 106
+ },
+ "real_fields": [
+  "name",
+  "kind",
+  "stars",
+  "address",
+  "lat",
+  "lon",
+  "website",
+  "amenities.wifi"
+ ],
+ "computed_fields": [
+  "district",
+  "distance_to_sea_m",
+  "distance_to_airport_km",
+  "amenities.beach_line",
+  "amenities.pool",
+  "pros",
+  "cons"
+ ],
+ "demo_fields": [
+  "price",
+  "availability",
+  "meal",
+  "free_cancellation"
+ ],
+ "mountain_cluster_rule": "Адлер, широта ≥ 43.6, долгота ≥ 40.0"
+}

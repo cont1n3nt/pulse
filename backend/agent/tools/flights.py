@@ -1,12 +1,17 @@
+from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
 from ..adapters.aviasales import SourceUnavailable, fetch_flights
 from ..reference import find_city
+from ._state import current_trip, emit, result
+
+SOCHI_CODES = ("AER",)
 
 
 @tool
 def resolve_city(name: str) -> str:
-    """
+    """Найти IATA-код города по названию.
+
     Args:
         name: название города, как его написал пользователь («Москва», «Нью-Йорк»).
     """
@@ -16,34 +21,45 @@ def resolve_city(name: str) -> str:
     return "; ".join(f'{c["name"]} ({c["country"]}) = {c["code"]}' for c in found)
 
 
-@tool(response_format="content_and_artifact")
-def search_flights(origin: str, destination: str, departure: str,
-                   return_date: str | None = None, limit: int = 5):
-    """
+@tool
+def search_flights(origin: str, destination: str, departure: str, runtime: ToolRuntime, limit: int = 5):
+    """Найти дешёвые перелёты в одну сторону с ценами Aviasales (цена за одного пассажира).
+
+    Для поездки туда и обратно вызови дважды: туда (город → AER) и обратно (AER → город).
+    Выдача обратного направления не стирает выдачу «туда».
+
     Args:
         origin: IATA-код города вылета (из resolve_city), например MOW.
-        destination: IATA-код города прилёта, например NYC.
+        destination: IATA-код города прилёта, например AER.
         departure: месяц YYYY-MM или точная дата YYYY-MM-DD.
-        return_date: дата/месяц обратного вылета, если нужен билет туда-обратно.
         limit: сколько вариантов вернуть (1–10).
     """
     try:
-        flights = fetch_flights(origin, destination, departure, return_date, limit)
+        flights = fetch_flights(origin, destination, departure, None, limit)
     except SourceUnavailable as exc:
-        return f"Сервис цен Aviasales недоступен ({exc}). Скажи честно, цены не выдумывай.", []
+        return result(runtime, "search_flights",
+                      f"Сервис цен Aviasales недоступен ({exc}). Скажи честно, цены не выдумывай.", [])
 
     if not flights:
-        return "Билетов в кэше Aviasales нет. Предложи соседний месяц или другие даты.", []
+        return result(runtime, "search_flights",
+                      "Билетов в кэше Aviasales нет. Предложи соседний месяц или другие даты.", [])
 
     lines = [
         f"[{f.id}] {f.carrier_name} {f.number}: {f.from_airport}→{f.to_airport}, "
-        f"вылет {f.depart_at:%d.%m %H:%M}, в пути {f.duration_min // 60}ч{f.duration_min % 60:02d}м, "
-        f"пересадок {f.transfers}, {f'{f.price_rub} ₽' if f.price_rub is not None else 'цена неизвестна'}"
+        f"вылет {f.depart_at:%d.%m %H:%M}, прилёт {f.arrive_at:%d.%m %H:%M}, "
+        f"в пути {f.duration_min // 60}ч{f.duration_min % 60:02d}м, пересадок {f.transfers}, "
+        f"{f'{f.price_rub} ₽' if f.price_rub is not None else 'цена неизвестна'}"
         for f in flights
     ]
-    content = "Найдено (багаж не гарантирован):\n" + "\n".join(lines)
-    artifact = [f.model_dump(mode="json") for f in flights]
-    return content, artifact
+    content = "Найдено (цена за одного, багаж не гарантирован):\n" + "\n".join(lines)
+    items = [f.model_dump(mode="json") for f in flights]
+    emit(runtime, "flights", items=items)
+
+    ops = [{"op": "flights", "items": items}]
+    home = destination if origin.upper() in SOCHI_CODES else origin
+    if home.upper() not in SOCHI_CODES and current_trip(runtime).requirements.origin_code != home.upper():
+        ops.append({"op": "requirements", "changes": {"origin_code": home.upper()}})
+    return result(runtime, "search_flights", content, ops)
 
 
 TOOLS = [resolve_city, search_flights]

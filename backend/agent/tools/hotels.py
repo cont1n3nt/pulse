@@ -41,7 +41,7 @@ def search_hotels(runtime: ToolRuntime, check_in: str | None = None, check_out: 
                   adults: int | None = None, children_ages: list[int] | None = None,
                   district: str | None = None, max_price_per_night: int | None = None,
                   must_have: list[str] | None = None, near_sea: bool | None = None):
-    """Найти отели в Большом Сочи на даты: цена за ночь, итог за поездку, удобства, плюсы и минусы по отзывам.
+    """Найти отели в Большом Сочи на даты: цена за ночь, итог за поездку, удобства, что рядом.
 
     Не переданные параметры берутся из сохранённых требований поездки, переданные сохраняются в них.
     Поэтому после update_requirements достаточно вызвать search_hotels() без аргументов.
@@ -112,25 +112,26 @@ def search_hotels(runtime: ToolRuntime, check_in: str | None = None, check_out: 
         if unknown:
             line += f". Не подтверждено: {', '.join(unknown)}"
         if h.pros:
-            line += f". Плюсы: {'; '.join(h.pros[:2])}"
+            line += f". Рядом: {'; '.join(h.pros[:3])}"
         if h.cons:
-            line += f". Минусы: {'; '.join(h.cons[:2])}"
+            line += f". Учесть: {'; '.join(h.cons[:2])}"
         lines.append(line)
 
     header = f"Найдено {_guests(req.adults, req.children_ages)}, {req.check_in:%d.%m.%Y}–{req.check_out:%d.%m.%Y}:"
     items = [h.model_dump(mode="json") for h in found]
     emit(runtime, "hotels", items=items)
     ops.append({"op": "hotels", "items": items})
-    text = remark + header + "\n" + "\n".join(lines) + "\nЦены ориентировочные (демо)."
+    text = (remark + header + "\n" + "\n".join(lines)
+            + "\nОтели и расстояния — реальные данные OpenStreetMap; цена, питание и отмена — демо.")
     return result(runtime, "search_hotels", text, ops)
 
 
 @tool
 def get_hotel_details(hotel_id: str, runtime: ToolRuntime) -> str:
-    """Подробно об отеле по id из результатов поиска: описание, удобства, плюсы, минусы, советы, цена на даты.
+    """Подробно об отеле по id из результатов поиска: адрес, удобства, что рядом, сайт, цена на даты.
 
     Args:
-        hotel_id: id отеля, например mock-adler-001.
+        hotel_id: id отеля, например osm-w123456789.
     """
     h = hotels_db.get(hotel_id)
     if not h:
@@ -141,14 +142,14 @@ def get_hotel_details(hotel_id: str, runtime: ToolRuntime) -> str:
     )
     sea = f"{h.distance_to_sea_m} м" if h.distance_to_sea_m is not None else "нет данных"
     lines = [
-        f"{h.name} ({_title(h)}), {h.district}. Демо-данные.",
-        f"Описание: {h.description or 'нет данных'}",
+        f"{h.name} ({_title(h)}), {h.district}. Адрес: {h.address or 'нет данных'}.",
+        "Объект, адрес и расстояния — OpenStreetMap; цена, питание и отмена — демо.",
         f"До моря: {sea}. До аэропорта: {h.distance_to_airport_km} км.",
-        f"Заселение с {hotels_db.CHECK_IN_TIME:%H:%M}, выезд до {hotels_db.CHECK_OUT_TIME:%H:%M}.",
+        f"Заселение с {hotels_db.CHECK_IN_TIME:%H:%M}, выезд до {hotels_db.CHECK_OUT_TIME:%H:%M} (типовые условия).",
         f"Удобства: {amenities}.",
-        f"Плюсы по отзывам: {'; '.join(h.pros) or 'нет данных'}.",
-        f"Минусы по отзывам: {'; '.join(h.cons) or 'нет данных'}.",
-        f"Советы: {'; '.join(h.tips) or 'нет данных'}.",
+        f"Рядом (по карте): {'; '.join(h.pros) or 'нет данных'}.",
+        f"Учесть: {'; '.join(h.cons) or 'ничего особенного'}.",
+        f"Сайт отеля: {'есть' if h.website else 'нет данных'}. Отзывов и фото в данных нет.",
     ]
     req = current_trip(runtime).requirements
     if req.check_in and req.check_out:

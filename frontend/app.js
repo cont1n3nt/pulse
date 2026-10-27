@@ -24,6 +24,24 @@ const chatList = document.querySelector('#chat-list');
 const chatTitle = document.querySelector('#chat-title');
 const newChatButton = document.querySelector('#new-chat');
 const chatsToggle = document.querySelector('#chats-toggle');
+const tripPanel = document.querySelector('#trip-panel');
+const tripToggle = document.querySelector('#trip-toggle');
+const tripClose = document.querySelector('#trip-close');
+const tripBackdrop = document.querySelector('#trip-backdrop');
+const tripBadge = document.querySelector('#trip-badge');
+const tripTitle = document.querySelector('#trip-title');
+const tripEmpty = document.querySelector('#trip-empty');
+const hotelList = document.querySelector('#hotel-list');
+const hotelCount = document.querySelector('#hotel-count');
+const flightList = document.querySelector('#flight-list');
+const tripCart = document.querySelector('#trip-cart');
+const tripOrders = document.querySelector('#trip-orders');
+const sections = {
+  hotels: document.querySelector('#trip-hotels-section'),
+  flights: document.querySelector('#trip-flights-section'),
+  cart: document.querySelector('#trip-cart-section'),
+  orders: document.querySelector('#trip-orders-section'),
+};
 let activeUserId = null;
 let activeChatId = null;
 let chats = [];
@@ -32,6 +50,8 @@ let accountEpoch = 0;
 let currentCode = null;
 let visible = false;
 let dragOffset = null;
+// что сейчас показано в панели поездки: из этого считается заголовок и счётчик на кнопке
+let tripView = { hotels: [], flights: [], cart: null, orders: [] };
 
 function keepPanelInViewport() {
   if (accountPanel.hidden) return;
@@ -123,6 +143,7 @@ function setChatBusy(busy) {
   chatSend.disabled = !activeChatId || busy;
   chatInput.disabled = !activeChatId || busy;
   chatList.querySelectorAll('button').forEach((button) => { button.disabled = busy; });
+  document.querySelectorAll('.suggestions .chip, .choose-hotel').forEach((button) => { button.disabled = !activeChatId || busy; });
 }
 
 function setChatsOpen(open) {
@@ -131,6 +152,21 @@ function setChatsOpen(open) {
   chatsToggle.setAttribute('aria-label', open ? 'Скрыть чаты' : 'Показать чаты');
 }
 chatsToggle.addEventListener('click', () => setChatsOpen(!document.body.classList.contains('chats-open')));
+
+// На широком экране поездка — третья колонка, уже — выезжающая панель
+const drawerQuery = matchMedia('(max-width: 1199px)');
+
+function setTripOpen(open) {
+  const drawer = drawerQuery.matches;
+  document.body.classList.toggle('trip-open', open && drawer);
+  tripBackdrop.hidden = !(open && drawer);
+  tripToggle.setAttribute('aria-expanded', String(open && drawer));
+  if (open && drawer) tripClose.focus();
+}
+tripToggle.addEventListener('click', () => setTripOpen(!document.body.classList.contains('trip-open')));
+tripClose.addEventListener('click', () => { setTripOpen(false); tripToggle.focus(); });
+tripBackdrop.addEventListener('click', () => setTripOpen(false));
+drawerQuery.addEventListener('change', () => setTripOpen(false));
 
 function showChatError(error) {
   chatError.textContent = error.message;
@@ -154,6 +190,186 @@ function renderChatList() {
   }
 }
 
+// --- карточки -------------------------------------------------------------------------------
+
+const KINDS = { hotel: 'Отель', guest_house: 'Гостевой дом', apartment: 'Апартаменты', hostel: 'Хостел', resort: 'Курорт' };
+const MEALS = { none: 'без питания', breakfast: 'завтрак', half_board: 'полупансион', all_inclusive: 'всё включено' };
+const SEVERITY = { blocker: 'мешает оформить', warning: 'внимание', info: 'к сведению' };
+const TOOL_STATUS = {
+  update_requirements: 'Запоминаю условия…',
+  search_hotels: 'Ищу отели…',
+  get_hotel_details: 'Смотрю детали отеля…',
+  resolve_city: 'Уточняю город…',
+  search_flights: 'Ищу перелёты…',
+  add_to_cart: 'Собираю поездку…',
+  remove_from_cart: 'Обновляю корзину…',
+  validate_trip: 'Проверяю состыковки…',
+  checkout: 'Оформляю заказ…',
+};
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+const rub = (value) => (value == null ? '—' : `${Number(value).toLocaleString('ru-RU')} ₽`);
+
+function plural(n, one, few, many) {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+
+const shortDate = (iso) => new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+const shortTime = (iso) => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+function hotelCard(hotel, cartIds) {
+  const card = el('article', 'hotel-card');
+  const top = el('div', 'hotel-top');
+  top.append(el('span', '', [hotel.stars ? `${hotel.stars}★` : '', KINDS[hotel.kind] ?? hotel.kind].filter(Boolean).join(' · ')));
+  if (hotel.source === 'osm') top.append(el('span', 'tag', 'OSM'));
+  card.append(top, el('h4', '', hotel.name));
+
+  const place = [hotel.district];
+  place.push(hotel.distance_to_sea_m != null ? `до моря ${hotel.distance_to_sea_m} м` : 'в горах');
+  card.append(el('p', 'muted', place.join(' · ')));
+  if (hotel.address) card.append(el('p', 'address', hotel.address));
+  if (hotel.pros?.length) card.append(el('p', 'pros', `+ ${hotel.pros.slice(0, 3).join(' · ')}`));
+  if (hotel.cons?.length) card.append(el('p', 'cons', `− ${hotel.cons.slice(0, 2).join(' · ')}`));
+  const terms = [MEALS[hotel.meal] ?? hotel.meal, hotel.free_cancellation ? 'бесплатная отмена' : 'без бесплатной отмены'].filter(Boolean);
+  card.append(el('p', 'features', terms.join(' · ')));
+
+  // объект реальный: его можно открыть на карте и на сайте отеля
+  const links = el('p', 'hotel-links');
+  for (const [href, label] of [[hotel.osm_url, 'На карте'], [hotel.website, 'Сайт отеля']]) {
+    if (!href || !/^https?:\/\//.test(href)) continue;
+    const link = el('a', '', label);
+    link.href = href;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    links.append(link);
+  }
+  if (links.childElementCount) card.append(links);
+
+  const bottom = el('div', 'hotel-bottom');
+  const price = el('div');
+  price.append(el('strong', 'price', rub(hotel.price_per_night_rub)), el('span', 'muted', ' / ночь'));
+  if (hotel.is_demo) price.append(el('span', 'demo-mark', ' · цена демо'));
+  if (hotel.total_price_rub != null) {
+    price.append(el('p', 'fineprint', `${rub(hotel.total_price_rub)} за ${hotel.nights} ${plural(hotel.nights, 'ночь', 'ночи', 'ночей')}`));
+  }
+  bottom.append(price);
+  if (cartIds.has(hotel.id)) {
+    bottom.append(el('span', 'in-cart', 'В корзине'));
+  } else {
+    const choose = el('button', 'choose-hotel', 'Выбрать');
+    choose.type = 'button';
+    choose.disabled = chatBusy || !activeChatId;
+    // выбор идёт через агента: он положит отель в корзину и проверит поездку
+    choose.addEventListener('click', () => sendMessage(`Беру «${hotel.name}»`));
+    bottom.append(choose);
+  }
+  card.append(bottom);
+  return card;
+}
+
+function issueList(issues) {
+  const list = el('ul', 'issues');
+  for (const issue of issues) {
+    const row = el('li', `issue ${issue.severity}`);
+    row.append(el('b', '', `${SEVERITY[issue.severity] ?? issue.severity}: `), document.createTextNode(issue.message));
+    list.append(row);
+  }
+  return list;
+}
+
+function itemRows(items) {
+  const list = el('ul', 'cart-items');
+  for (const item of items) {
+    const row = el('li');
+    row.append(el('span', '', item.title), el('strong', '', rub(item.price_rub)));
+    list.append(row);
+  }
+  return list;
+}
+
+function cartContent(cart) {
+  const box = el('div', 'cart-box');
+  if (!cart.items.length) {
+    box.append(el('p', 'muted', 'Корзина пуста'));
+  } else {
+    box.append(itemRows(cart.items), el('p', 'cart-total', `Итого ${rub(cart.total_rub)} · ориентировочно`));
+  }
+  if (cart.issues?.length) box.append(issueList(cart.issues));
+  return box;
+}
+
+function orderContent(order) {
+  const box = el('div', 'order-box');
+  box.append(
+    el('p', 'card-title', `Заказ ${order.id} оформлен`),
+    itemRows(order.items),
+    el('p', 'cart-total', `Итого ${rub(order.total_rub)} · оплата имитирована`),
+  );
+  return box;
+}
+
+// --- панель поездки -------------------------------------------------------------------------
+
+function renderTrip() {
+  const { hotels, flights, cart, orders } = tripView;
+  const cartIds = new Set((cart?.items ?? []).map((item) => item.option_id));
+
+  hotelList.replaceChildren(...hotels.map((hotel) => hotelCard(hotel, cartIds)));
+  hotelCount.textContent = hotels.length ? `${hotels.length} ${plural(hotels.length, 'отель', 'отеля', 'отелей')}` : '';
+  sections.hotels.hidden = !hotels.length;
+
+  flightList.replaceChildren(...flights.map((flight) => {
+    const row = el('div', 'flight-row');
+    row.append(
+      el('span', '', `${flight.carrier_name} ${flight.number}`),
+      el('span', 'muted', `${flight.from_airport} → ${flight.to_airport} · ${shortTime(flight.depart_at)}`),
+      el('strong', '', rub(flight.price_rub)),
+    );
+    return row;
+  }));
+  sections.flights.hidden = !flights.length;
+
+  tripCart.replaceChildren(...(cart?.items.length ? [cartContent(cart)] : []));
+  sections.cart.hidden = !cart?.items.length;
+
+  tripOrders.replaceChildren(...orders.map(orderContent));
+  sections.orders.hidden = !orders.length;
+
+  const empty = !hotels.length && !flights.length && !cart?.items.length && !orders.length;
+  tripEmpty.hidden = !empty;
+  const hotel = hotels[0];
+  tripTitle.textContent = orders.length && !cart?.items.length
+    ? 'Поездка оформлена'
+    : hotel ? `Сочи · ${shortDate(hotel.check_in)} – ${shortDate(hotel.check_out)}` : 'Пока пусто';
+
+  const count = cart?.items.length || hotels.length;
+  tripBadge.textContent = count ? String(count) : '';
+  tripBadge.hidden = !count;
+  tripBadge.classList.toggle('filled', Boolean(cart?.items.length));
+}
+
+function resetTrip(trip) {
+  tripView = {
+    hotels: trip?.hotels ?? [],
+    flights: trip?.flights ?? [],
+    cart: trip?.cart ?? null,
+    orders: trip?.orders ?? [],
+  };
+  renderTrip();
+}
+
+// --- сообщения ------------------------------------------------------------------------------
+
 function clearChat() {
   activeChatId = null;
   chatMessages.replaceChildren(chatEmpty);
@@ -161,6 +377,197 @@ function clearChat() {
   chatInput.value = '';
   resizeChatInput();
   chatError.hidden = true;
+  resetTrip(null);
+}
+
+function scrollChat() {
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function addChatMessage(role, text) {
+  if (role === 'bot') chatMessages.append(el('div', 'bot-label', '≋ ТИХО'));
+  const bubble = el('div', `bubble ${role}`, text);
+  chatEmpty.hidden = true;
+  chatMessages.append(bubble);
+  scrollChat();
+  return bubble;
+}
+
+// Ответ агента: статус работы, текст по мере генерации и карточки под ним
+function addBotReply() {
+  chatEmpty.hidden = true;
+  const label = el('div', 'bot-label', '≋ ТИХО');
+  const status = el('div', 'reasoning');
+  status.append(el('span', 'spinner'), el('span', 'status-text', 'Думаю…'));
+  const bubble = el('div', 'bubble bot');
+  bubble.hidden = true;
+  const cards = el('div', 'bot-cards');
+  chatMessages.append(label, status, bubble, cards);
+  scrollChat();
+  return {
+    label, status, bubble, cards,
+    setStatus(text) { status.querySelector('.status-text').textContent = text; },
+    append(token) {
+      bubble.hidden = false;
+      bubble.textContent += token;
+      scrollChat();
+    },
+    addCard(card) {
+      cards.append(card);
+      scrollChat();
+    },
+    finish() {
+      status.remove();
+      if (!bubble.textContent && !cards.childElementCount) label.remove();
+      if (!bubble.textContent) bubble.remove();
+      if (!cards.childElementCount) cards.remove();
+    },
+  };
+}
+
+function chatCard(className, ...children) {
+  const card = el('div', `chat-card ${className}`);
+  card.append(...children);
+  return card;
+}
+
+// Корзина в чате одна: новая версия заменяет прежнюю карточку
+function showCartInChat(reply, cart) {
+  chatMessages.querySelectorAll('.chat-card.cart').forEach((card) => card.remove());
+  const title = el('p', 'card-title', 'Ваша поездка');
+  reply.addCard(chatCard('cart', title, cartContent(cart)));
+}
+
+function variantsHint(reply, count) {
+  // на узком экране варианты в выезжающей панели: подсказка открывает её
+  const button = el('button', 'variants-hint', `Показать ${count} ${plural(count, 'вариант', 'варианта', 'вариантов')} →`);
+  button.type = 'button';
+  button.addEventListener('click', () => setTripOpen(true));
+  reply.addCard(button);
+}
+
+function showConfirm(container, event) {
+  const actions = el('div', 'confirm-actions');
+  const pay = el('button', 'pay', `Оплатить ${rub(event.total_rub)}`);
+  const cancel = el('button', 'cancel', 'Отмена');
+  pay.type = cancel.type = 'button';
+  const card = chatCard('confirm', el('p', 'card-title', 'Подтвердите оплату'), itemRows(event.items));
+  if (event.issues?.length) card.append(issueList(event.issues));
+  const decide = (approved) => {
+    if (chatBusy) return;
+    card.classList.add('decided');
+    actions.replaceChildren(el('p', 'muted', approved ? 'Оплата подтверждена' : 'Оплата отменена'));
+    streamAgent(`/api/chats/${encodeURIComponent(activeChatId)}/checkout`, { approved });
+  };
+  pay.addEventListener('click', () => decide(true));
+  cancel.addEventListener('click', () => decide(false));
+  actions.append(pay, cancel);
+  card.append(actions, el('p', 'fineprint', 'Это демо: деньги не списываются.'));
+  container(card);
+}
+
+// Новое сообщение вместо кнопки бэк считает отказом от оплаты: карточка гаснет
+function closePendingConfirms() {
+  for (const card of chatMessages.querySelectorAll('.chat-card.confirm:not(.decided)')) {
+    card.classList.add('decided');
+    card.querySelector('.confirm-actions')?.replaceChildren(el('p', 'muted', 'Оплата не подтверждена'));
+  }
+}
+
+async function readEvents(response, onEvent) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop();
+    for (const part of parts) {
+      if (part.startsWith('data: ')) onEvent(JSON.parse(part.slice(6)));
+    }
+  }
+}
+
+function handleEvent(reply, event) {
+  if (event.type === 'token') {
+    reply.status.hidden = true;
+    reply.append(event.text);
+  } else if (event.type === 'tool') {
+    reply.status.hidden = false;
+    reply.setStatus(TOOL_STATUS[event.name] ?? 'Работаю…');
+  } else if (event.type === 'block') {
+    if (event.block === 'hotels') {
+      tripView.hotels = event.items;
+      renderTrip();
+      variantsHint(reply, event.items.length);
+    } else if (event.block === 'flights') {
+      tripView.flights = event.items;
+      renderTrip();
+    } else if (event.block === 'cart') {
+      tripView.cart = { items: event.items, total_rub: event.total_rub, issues: event.issues };
+      renderTrip();
+      showCartInChat(reply, tripView.cart);
+    } else if (event.block === 'order') {
+      tripView.orders = [...tripView.orders.filter((order) => order.id !== event.order.id), event.order];
+      tripView.cart = { items: [], total_rub: 0, issues: [] };
+      renderTrip();
+      // корзина оформлена: её карточка в чате больше не актуальна
+      chatMessages.querySelectorAll('.chat-card.cart').forEach((card) => card.remove());
+      reply.addCard(chatCard('order', orderContent(event.order)));
+    }
+  } else if (event.type === 'confirm') {
+    showConfirm((card) => reply.addCard(card), event);
+  } else if (event.type === 'chat') {
+    chats = [event.chat, ...chats.filter((item) => item.id !== event.chat.id)];
+    if (event.chat.id === activeChatId) chatTitle.textContent = event.chat.title;
+    renderChatList();
+  } else if (event.type === 'error') {
+    throw new Error(event.detail);
+  }
+}
+
+// Один ход агента: запрос, поток SSE, текст и карточки в чате
+async function streamAgent(url, payload) {
+  if (chatBusy || !activeChatId) return;
+  const epoch = accountEpoch;
+  const chatId = activeChatId;
+  chatError.hidden = true;
+  setChatBusy(true);
+  const reply = addBotReply();
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.detail || 'Не удалось отправить сообщение');
+    }
+    await readEvents(response, (event) => {
+      // пользователь переключил чат или аккаунт: этот поток больше не показываем
+      if (epoch === accountEpoch && chatId === activeChatId) handleEvent(reply, event);
+    });
+  } catch (error) {
+    if (epoch === accountEpoch) showChatError(error);
+  } finally {
+    reply.finish();
+    if (epoch === accountEpoch) {
+      setChatBusy(false);
+      chatInput.focus();
+    }
+  }
+}
+
+function sendMessage(text) {
+  const message = text.trim();
+  if (!message || chatBusy || !activeChatId) return;
+  closePendingConfirms();
+  addChatMessage('user', message);
+  streamAgent('/api/chat', { session_id: activeChatId, message });
 }
 
 function displayChat(data) {
@@ -170,6 +577,13 @@ function displayChat(data) {
   for (const message of data.messages) {
     addChatMessage(message.role === 'assistant' ? 'bot' : 'user', message.content);
   }
+  resetTrip(data.trip);
+  if (data.trip?.cart?.items.length) {
+    chatMessages.append(chatCard('cart', el('p', 'card-title', 'Ваша поездка'), cartContent(data.trip.cart)));
+  }
+  // заказ ждал подтверждения, когда страницу закрыли: возвращаем кнопку оплаты
+  if (data.trip?.confirm) showConfirm((card) => chatMessages.append(card), data.trip.confirm);
+  scrollChat();
   renderChatList();
   setChatsOpen(false);
 }
@@ -242,21 +656,6 @@ newChatButton.addEventListener('click', async () => {
   }
 });
 
-function addChatMessage(role, text) {
-  const bubble = document.createElement('div');
-  bubble.className = `bubble ${role}`;
-  bubble.textContent = text;
-  if (role === 'bot') {
-    const label = document.createElement('div');
-    label.className = 'bot-label';
-    label.textContent = '≋ ТИХО';
-    chatMessages.append(label);
-  }
-  chatEmpty.hidden = true;
-  chatMessages.append(bubble);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
 function resizeChatInput() {
   chatInput.style.height = 'auto';
   chatInput.style.height = `${chatInput.scrollHeight}px`;
@@ -270,35 +669,16 @@ chatInput.addEventListener('keydown', (event) => {
     chatForm.requestSubmit();
   }
 });
-chatForm.addEventListener('submit', async (event) => {
+chatForm.addEventListener('submit', (event) => {
   event.preventDefault();
+  if (!chatInput.value.trim() || chatBusy || !activeChatId) return;
   const message = chatInput.value;
-  if (!message.trim() || chatBusy || !activeChatId) return;
-  const epoch = accountEpoch;
-  const chatId = activeChatId;
-  chatError.hidden = true;
-  setChatBusy(true);
-  try {
-    const reply = await api('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: chatId, message }),
-    });
-    if (epoch !== accountEpoch) return;
-    for (const item of reply.messages) addChatMessage(item.role === 'assistant' ? 'bot' : 'user', item.content);
-    chats = [reply.chat, ...chats.filter((item) => item.id !== chatId)];
-    chatTitle.textContent = reply.chat.title;
-    renderChatList();
-    chatInput.value = '';
-    resizeChatInput();
-  } catch (error) {
-    if (epoch === accountEpoch) showChatError(error);
-  } finally {
-    if (epoch === accountEpoch) {
-      setChatBusy(false);
-      chatInput.focus();
-    }
-  }
+  chatInput.value = '';
+  resizeChatInput();
+  sendMessage(message);
+});
+document.querySelectorAll('.suggestions .chip').forEach((chip) => {
+  chip.addEventListener('click', () => sendMessage(chip.dataset.prompt));
 });
 
 function render(data) {
@@ -394,7 +774,10 @@ form.addEventListener('submit', async (event) => {
   }
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') setChatsOpen(false);
+  if (event.key === 'Escape') {
+    setChatsOpen(false);
+    setTripOpen(false);
+  }
   if (event.key !== 'Escape' || accountPanel.hidden) return;
   if (!loginView.hidden) setLoginMode(false);
   else setPanelOpen(false);

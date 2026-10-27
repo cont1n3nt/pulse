@@ -13,11 +13,13 @@ LLM_MODEL = os.getenv("LLM_MODEL", "openrouter/free")
 
 TRAVELPAYOUTS_TOKEN = os.getenv("TRAVELPAYOUTS_TOKEN", "")
 HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "20"))
-# Максимум шагов агента за один запрос (защита от зацикливания на инструментах).
-AGENT_RECURSION_LIMIT = int(os.getenv("AGENT_RECURSION_LIMIT", "12"))
+# Максимум шагов графа за один запрос: аварийный предохранитель. Один цикл «модель → инструмент»
+# занимает 3–4 шага (модель, инструменты, узлы middleware); основной лимит — 8 вызовов модели
+# в guardrails.py, он завершает ход корректно. Этот должен быть с запасом выше.
+AGENT_RECURSION_LIMIT = int(os.getenv("AGENT_RECURSION_LIMIT", "40"))
 
 SEED_DIR = Path(os.getenv("SEED_DIR", Path(__file__).resolve().parent.parent / "seed"))
-
+DATA_DIR = Path(os.getenv("DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
 
 def make_llm():
     from langchain_openai import ChatOpenAI
