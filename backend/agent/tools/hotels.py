@@ -1,0 +1,165 @@
+from langchain.tools import ToolRuntime
+from langchain_core.tools import tool
+
+from ..adapters import hotels as hotels_db
+from ..contracts import Requirements
+from ..trip import diff_hotels, diff_requirements
+from ._state import BadInput, current_trip, emit, prepare_changes, result
+
+MEALS = {"none": "без питания", "breakfast": "завтрак", "half_board": "полупансион",
+         "all_inclusive": "всё включено"}
+KINDS = {"hotel": "отель", "guest_house": "гостевой дом", "apartment": "апартаменты",
+         "hostel": "хостел", "resort": "курорт"}
+AMENITY_NAMES = hotels_db.AMENITY_NAMES
+DEFAULT_ADULTS = 2
+
+
+def _years(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return f"{n} год"
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return f"{n} года"
+    return f"{n} лет"
+
+
+def _guests(adults: int, children_ages: list[int]) -> str:
+    text = f"{adults} взрослого" if adults == 1 else f"{adults} взрослых"
+    if len(children_ages) == 1:
+        text += f" и ребёнка {_years(children_ages[0])}"
+    elif children_ages:
+        text += f" и {len(children_ages)} детей ({', '.join(map(str, children_ages))} лет)"
+    return "для " + text
+
+
+def _title(h) -> str:
+    stars = f"{h.stars}★ " if h.stars else ""
+    return f"{stars}{KINDS[h.kind]}"
+
+
+@tool
+def search_hotels(runtime: ToolRuntime, check_in: str | None = None, check_out: str | None = None,
+                  adults: int | None = None, children_ages: list[int] | None = None,
+                  district: str | None = None, max_price_per_night: int | None = None,
+                  must_have: list[str] | None = None, near_sea: bool | None = None):
+    """Найти отели в Большом Сочи на даты: цена за ночь, итог за поездку, удобства, плюсы и минусы по отзывам.
+
+    Не переданные параметры берутся из сохранённых требований поездки, переданные сохраняются в них.
+    Поэтому после update_requirements достаточно вызвать search_hotels() без аргументов.
+
+    Args:
+        check_in: дата заезда YYYY-MM-DD.
+        check_out: дата выезда YYYY-MM-DD.
+        adults: число взрослых.
+        children_ages: возраста детей, например [5].
+        district: район: Адлер, Центр, Сириус, Красная Поляна, Хоста, Лазаревское; «любой» снимает фильтр.
+        max_price_per_night: максимум за ночь в рублях; если не задан, считается из бюджета поездки.
+        must_have: обязательные удобства из: wifi, pool, parking, kids, pets, breakfast, beach_line, spa.
+        near_sea: только отели до 500 м от моря.
+    """
+    trip = current_trip(runtime)
+    try:
+        changes, remark = prepare_changes(
+            trip.requirements, check_in=check_in, check_out=check_out, adults=adults,
+            children_ages=children_ages, district=district, must_have=must_have, near_sea=near_sea)
+    except BadInput as exc:
+        return result(runtime, "search_hotels", str(exc), [])
+
+    req = Requirements.model_validate(trip.requirements.model_dump() | changes)
+    if not (req.check_in and req.check_out):
+        return result(runtime, "search_hotels",
+                      "Даты поездки неизвестны. Уточни у пользователя даты или месяц и число ночей.", [])
+    ops = [{"op": "requirements", "changes": changes}] if changes else []
+    lines = []
+    if changes:
+        lines.append("Требования обновлены: " + "; ".join(diff_requirements(trip.requirements, req)) + ".")
+    if req.adults is None:
+        changes["adults"] = DEFAULT_ADULTS
+        req.adults = DEFAULT_ADULTS
+        ops = [{"op": "requirements", "changes": changes},
+               {"op": "assumptions", "items": [f"считаю {DEFAULT_ADULTS} взрослых"]}]
+        lines.append(f"Состав гостей не назван: считаю {DEFAULT_ADULTS} взрослых, скажи это как допущение.")
+
+    nights = (req.check_out - req.check_in).days
+    limit_note = ""
+    if max_price_per_night is None and req.budget_rub:
+        flights = sum(c.price_rub or 0 for c in trip.cart if c.kind == "flight")
+        max_price_per_night = max((req.budget_rub - flights) // nights, 0)
+        limit_note = (f"Лимит за ночь посчитан из бюджета {req.budget_rub} ₽"
+                      f"{f' минус перелёты {flights} ₽' if flights else ''}: до {max_price_per_night} ₽.")
+        lines.append(limit_note)
+
+    required = list(req.must_have)
+    if req.children_ages and "kids" not in required:
+        required.append("kids")
+    found = hotels_db.search(
+        req.check_in, req.check_out, req.district, max_price_per_night, required, req.near_sea,
+        exclude_kinds=("hostel",) if req.children_ages else ())
+    if not found:
+        text = (remark + "\n".join(lines) + "\nНичего не найдено. Назови, какое условие мешает, и предложи "
+                "ослабить фильтры: другой район, больший бюджет, меньше обязательных удобств или другие даты.")
+        return result(runtime, "search_hotels", text.strip(), ops)
+
+    changed = diff_hotels(trip.hotels, found)
+    if changed:
+        lines.append("По сравнению с прошлой выдачей: " + "; ".join(changed) + ".")
+    for h in found:
+        sea = f"до моря {h.distance_to_sea_m} м" if h.distance_to_sea_m is not None else "море далеко (горы)"
+        cancel = "бесплатная отмена" if h.free_cancellation else "без бесплатной отмены"
+        line = (f"[{h.id}] {h.name}, {_title(h)}, {h.district}, {sea}, "
+                f"{h.price_per_night_rub} ₽/ночь, итого {h.total_price_rub} ₽ за {h.nights} н., "
+                f"{MEALS[h.meal]}, {cancel}")
+        unknown = [AMENITY_NAMES[c] for c in required if h.amenities.get(c) is None]
+        if unknown:
+            line += f". Не подтверждено: {', '.join(unknown)}"
+        if h.pros:
+            line += f". Плюсы: {'; '.join(h.pros[:2])}"
+        if h.cons:
+            line += f". Минусы: {'; '.join(h.cons[:2])}"
+        lines.append(line)
+
+    header = f"Найдено {_guests(req.adults, req.children_ages)}, {req.check_in:%d.%m.%Y}–{req.check_out:%d.%m.%Y}:"
+    items = [h.model_dump(mode="json") for h in found]
+    emit(runtime, "hotels", items=items)
+    ops.append({"op": "hotels", "items": items})
+    text = remark + header + "\n" + "\n".join(lines) + "\nЦены ориентировочные (демо)."
+    return result(runtime, "search_hotels", text, ops)
+
+
+@tool
+def get_hotel_details(hotel_id: str, runtime: ToolRuntime) -> str:
+    """Подробно об отеле по id из результатов поиска: описание, удобства, плюсы, минусы, советы, цена на даты.
+
+    Args:
+        hotel_id: id отеля, например mock-adler-001.
+    """
+    h = hotels_db.get(hotel_id)
+    if not h:
+        return f"Отель {hotel_id} не найден."
+    amenities = ", ".join(
+        f"{AMENITY_NAMES.get(code, code)}: {'есть' if v else 'нет' if v is False else 'нет данных'}"
+        for code, v in h.amenities.items()
+    )
+    sea = f"{h.distance_to_sea_m} м" if h.distance_to_sea_m is not None else "нет данных"
+    lines = [
+        f"{h.name} ({_title(h)}), {h.district}. Демо-данные.",
+        f"Описание: {h.description or 'нет данных'}",
+        f"До моря: {sea}. До аэропорта: {h.distance_to_airport_km} км.",
+        f"Заселение с {hotels_db.CHECK_IN_TIME:%H:%M}, выезд до {hotels_db.CHECK_OUT_TIME:%H:%M}.",
+        f"Удобства: {amenities}.",
+        f"Плюсы по отзывам: {'; '.join(h.pros) or 'нет данных'}.",
+        f"Минусы по отзывам: {'; '.join(h.cons) or 'нет данных'}.",
+        f"Советы: {'; '.join(h.tips) or 'нет данных'}.",
+    ]
+    req = current_trip(runtime).requirements
+    if req.check_in and req.check_out:
+        q = hotels_db.quote(hotel_id, req.check_in, req.check_out)
+        if q and q.available:
+            lines.append(f"На {req.check_in:%d.%m}–{req.check_out:%d.%m}: {q.price_per_night_rub} ₽/ночь, "
+                         f"итого {q.total_price_rub} ₽, {MEALS[q.meal]}, "
+                         f"{'бесплатная отмена' if q.free_cancellation else 'без бесплатной отмены'}.")
+        else:
+            lines.append(f"На {req.check_in:%d.%m}–{req.check_out:%d.%m} мест нет.")
+    return "\n".join(lines)
+
+
+TOOLS = [search_hotels, get_hotel_details]
