@@ -8,6 +8,8 @@ reducer графа применяет операции по очереди. По
     {"op": "requirements", "changes": {...}}   поля Requirements, None = сбросить
     {"op": "assumptions", "items": [...]}
     {"op": "hotels" | "flights", "items": [...]} новая выдача
+    {"op": "packages", "items": [...]}          готовые пакеты: перелёты + трансфер + отель
+    {"op": "weather", "data": {...} | None}     погода на даты поездки
     {"op": "cart_add", "item": {...}}           CartItem; заменяет отель или перелёт того же плеча
     {"op": "cart_remove", "option_id": "..."}
     {"op": "order", "order_id": "..."}          заказ оформлен, корзина очищается
@@ -16,11 +18,12 @@ reducer графа применяет операции по очереди. По
 from datetime import date, datetime, timedelta
 
 from .adapters import hotels as hotels_db
-from .contracts import CartItem, FlightOption, HotelOption, Issue, Requirements, TripState
+from .contracts import CartItem, FlightOption, HotelOption, Issue, Package, Requirements, TransferOption, TripState
 
 AIRPORT_BUFFER_MIN = 90  # приехать в аэропорт до вылета
 EARLY_CHECKIN_WAIT_H = 2  # ожидание заселения, о котором стоит предупредить
 LATE_CHECKOUT_WAIT_H = 3  # ожидание после выезда, о котором стоит сказать
+LONG_TRANSFER_MIN = 90  # дорога из аэропорта, о которой стоит предупредить
 
 
 # --- reducer --------------------------------------------------------------------------------
@@ -48,9 +51,15 @@ def apply(trip: TripState, op: dict) -> TripState:
         new = [FlightOption.model_validate(x) for x in op["items"]]
         directions = {_direction(f) for f in new}
         trip.flights = [f for f in trip.flights if _direction(f) not in directions] + new
+    elif kind == "packages":
+        trip.packages = [Package.model_validate(x) for x in op["items"]]
+    elif kind == "weather":
+        trip.weather = op["data"]
     elif kind == "cart_add":
         item = CartItem.model_validate(op["item"])
         trip.cart = [c for c in trip.cart if not _same_slot(c, item)] + [item]
+        if item.kind == "hotel":
+            _follow_hotel(trip, HotelOption.model_validate(item.snapshot))
     elif kind == "cart_remove":
         trip.cart = [c for c in trip.cart if c.option_id != op["option_id"]]
     elif kind == "order":
@@ -68,6 +77,16 @@ def _direction(flight: FlightOption) -> str | None:
     if flight.from_airport in hotels_db.AIRPORTS:
         return "return"
     return None
+
+
+def _follow_hotel(trip: TripState, hotel: HotelOption) -> None:
+    """Сменился отель: трансфер в корзине пересчитывается на новый адрес."""
+    old = next((c for c in trip.cart if c.kind == "transfer"), None)
+    if old is None or old.snapshot.get("hotel_id") == hotel.id:
+        return
+    trip.cart = [c for c in trip.cart if c.kind != "transfer"]
+    if fresh := hotels_db.transfer(hotel, max(trip.requirements.guests, 1)):
+        trip.cart.append(transfer_item(fresh))
 
 
 def _same_slot(a: CartItem, b: CartItem) -> bool:
@@ -105,26 +124,43 @@ def stage(trip: TripState) -> str:
 
 # --- корзина --------------------------------------------------------------------------------
 
+def hotel_item(hotel: HotelOption) -> CartItem:
+    return CartItem(
+        kind="hotel", option_id=hotel.id, price_rub=hotel.total_price_rub,
+        title=f"{hotel.name}, {hotel.check_in:%d.%m}–{hotel.check_out:%d.%m}, {hotel.nights} н.",
+        snapshot=hotel.model_dump(mode="json"),
+    )
+
+
+def flight_item(flight: FlightOption, leg: str) -> CartItem:
+    return CartItem(
+        kind="flight", option_id=flight.id, leg=leg, price_rub=flight.price_rub,
+        title=(f"{flight.carrier_name} {flight.number}, {_local(flight.depart_at):%d.%m %H:%M} "
+               f"{flight.from_airport}→{flight.to_airport}"),
+        snapshot=flight.model_dump(mode="json"),
+    )
+
+
+def transfer_item(transfer: TransferOption) -> CartItem:
+    car = "минивэн" if transfer.car == "minivan" else "такси"
+    return CartItem(
+        kind="transfer", option_id=f"transfer-{transfer.hotel_id}", price_rub=transfer.price_rub,
+        title=f"Трансфер аэропорт ⇄ отель, {car}, {transfer.trips} поездки по ~{transfer.minutes} мин",
+        snapshot=transfer.model_dump(mode="json"),
+    )
+
+
 def make_cart_item(trip: TripState, option_id: str) -> CartItem | str:
     """Позиция корзины из текущей выдачи или текст ошибки для модели."""
-    for hotel in trip.hotels:
+    for hotel in trip.hotels + [p.hotel for p in trip.packages]:
         if hotel.id == option_id:
-            return CartItem(
-                kind="hotel", option_id=hotel.id, price_rub=hotel.total_price_rub,
-                title=f"{hotel.name}, {hotel.check_in:%d.%m}–{hotel.check_out:%d.%m}, {hotel.nights} н.",
-                snapshot=hotel.model_dump(mode="json"),
-            )
+            return hotel_item(hotel)
     for flight in trip.flights:
         if flight.id == option_id:
             leg = _direction(flight)
             if leg is None:
                 return "Этот перелёт не в Сочи и не из Сочи, в поездку его добавить нельзя."
-            return CartItem(
-                kind="flight", option_id=flight.id, leg=leg, price_rub=flight.price_rub,
-                title=(f"{flight.carrier_name} {flight.number}, {_local(flight.depart_at):%d.%m %H:%M} "
-                       f"{flight.from_airport}→{flight.to_airport}"),
-                snapshot=flight.model_dump(mode="json"),
-            )
+            return flight_item(flight, leg)
     return (f"Варианта {option_id} нет в последней выдаче. Добавлять можно только отели и перелёты "
             f"из последнего поиска; если условия менялись, сначала повтори поиск.")
 
@@ -154,6 +190,10 @@ def validate(trip: TripState) -> list[Issue]:
         _check_departure(hotel, back, add)
     if outbound and back and back.depart_at <= outbound.arrive_at:
         add("flights_order", "blocker", "Обратный рейс вылетает раньше, чем прилетает рейс туда.")
+    transfer = next((c for c in trip.cart if c.kind == "transfer"), None)
+    if transfer and transfer.snapshot.get("minutes", 0) >= LONG_TRANSFER_MIN:
+        add("long_transfer", "warning" if r.children_ages else "info",
+            f"Дорога из аэропорта до отеля около {transfer.snapshot['minutes']} мин в одну сторону.")
     for item in trip.cart:
         if item.kind == "flight" and item.price_rub is None:
             add("flight_price_unknown", "info", f"Цена рейса {item.title} неизвестна и в итог не вошла.")
@@ -244,6 +284,65 @@ def _flight(trip: TripState, leg: str) -> FlightOption | None:
     return FlightOption.model_validate(item.snapshot) if item else None
 
 
+# --- маршрут поездки -------------------------------------------------------------------------
+
+ARRIVAL_ISSUES = ("late_arrival", "early_arrival", "early_checkin")
+DEPARTURE_ISSUES = ("late_departure", "unused_night", "late_checkout", "flights_order")
+HOTEL_ISSUES = ("unavailable", "price_changed", "dates_mismatch", "hostel_with_kids")
+
+
+def itinerary(trip: TripState) -> list[dict]:
+    """Таймлайн собранной поездки для фронта: вылет → трансфер → заселение → дни → выезд → обратно.
+
+    Проблемы проверки привязаны к шагу, на котором они случатся.
+    """
+    hotel_item_ = next((c for c in trip.cart if c.kind == "hotel"), None)
+    if hotel_item_ is None:
+        return []
+    hotel = HotelOption.model_validate(hotel_item_.snapshot)
+    outbound, back = _flight(trip, "outbound"), _flight(trip, "return")
+    transfer = next((c for c in trip.cart if c.kind == "transfer"), None)
+    minutes = transfer.snapshot.get("minutes") if transfer else hotels_db.transfer_minutes(hotel)
+    codes = {i.code: i for i in trip.issues}
+    weather = {d["date"]: d for d in (trip.weather or {}).get("days", [])}
+    sea = ((trip.weather or {}).get("sea") or {}).get("t")
+
+    def issues(group) -> list[dict]:
+        return [codes[c].model_dump() for c in group if c in codes]
+
+    steps = []
+    if outbound:
+        dep, arr = _local(outbound.depart_at), _local(outbound.arrive_at)
+        steps.append({"kind": "flight", "at": dep.isoformat(), "title": f"Вылет {outbound.from_airport} → {outbound.to_airport}",
+                      "detail": f"{outbound.carrier_name} {outbound.number}, прилёт в {arr:%H:%M}", "issues": []})
+        if minutes:
+            steps.append({"kind": "transfer", "at": arr.isoformat(), "title": "Трансфер в отель",
+                          "detail": f"около {minutes} мин", "issues": []})
+    check_in = datetime.combine(hotel.check_in, hotels_db.CHECK_IN_TIME)
+    steps.append({"kind": "checkin", "at": check_in.isoformat(), "title": f"Заселение: {hotel.name}",
+                  "detail": f"с {hotels_db.CHECK_IN_TIME:%H:%M}, {hotel.district}",
+                  "issues": issues(ARRIVAL_ISSUES + HOTEL_ISSUES)})
+    day = hotel.check_in
+    while day <= hotel.check_out:
+        w = weather.get(day.isoformat())
+        if w and day not in (hotel.check_in,):
+            detail = f"{w['t_max']}°/{w['t_min']}°, {w['summary']}"
+            if sea is not None:
+                detail += f", море {sea}°"
+            steps.append({"kind": "day", "at": datetime.combine(day, datetime.min.time()).isoformat(),
+                          "title": f"{day:%d.%m}", "detail": detail, "issues": []})
+        day += timedelta(days=1)
+    check_out = datetime.combine(hotel.check_out, hotels_db.CHECK_OUT_TIME)
+    steps.append({"kind": "checkout", "at": check_out.isoformat(), "title": "Выезд из отеля",
+                  "detail": f"до {hotels_db.CHECK_OUT_TIME:%H:%M}", "issues": issues(DEPARTURE_ISSUES)})
+    if back:
+        dep, arr = _local(back.depart_at), _local(back.arrive_at)
+        steps.append({"kind": "flight", "at": dep.isoformat(), "title": f"Вылет {back.from_airport} → {back.to_airport}",
+                      "detail": f"{back.carrier_name} {back.number}, прилёт в {arr:%H:%M}", "issues": []})
+    steps.sort(key=lambda s: s["at"])
+    return steps
+
+
 # --- тексты для модели ----------------------------------------------------------------------
 
 REQUIREMENT_LABELS = {
@@ -316,7 +415,11 @@ def summary(trip: TripState) -> str:
         lines.append(f"Пожелания: {'; '.join(r.notes)}.")
     if trip.assumptions:
         lines.append(f"Допущения: {'; '.join(trip.assumptions)}.")
-    lines.append(f"Последняя выдача: отелей {len(trip.hotels)}, перелётов {len(trip.flights)}.")
+    lines.append(f"Последняя выдача: отелей {len(trip.hotels)}, перелётов {len(trip.flights)}, "
+                 f"пакетов {len(trip.packages)}.")
+    if trip.packages:
+        lines.append("Пакеты: " + "; ".join(f"[{p.id}] {p.label} — {p.hotel.name}, итого {_rub(p.total_rub)}"
+                                            for p in trip.packages) + ".")
     lines.append(describe_cart(trip))
     if trip.cart:
         lines.append(describe_issues(trip.issues))

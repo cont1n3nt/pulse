@@ -30,19 +30,19 @@
       <div class="section-head">
         <div class="section-title">
           <h2 id="chat-title">Загрузка чатов…</h2>
-          <p class="muted">Ваши пожелания — наш маршрут</p>
+          <p class="muted">Перелёт, трансфер и отель — одной поездкой</p>
         </div>
         <button id="trip-toggle" class="trip-toggle" type="button" aria-controls="trip-panel" aria-expanded="false">
           Поездка <span id="trip-badge" class="trip-badge" hidden></span>
         </button>
       </div>
       <div id="chat-messages" class="chat-preview" role="log" aria-label="Сообщения чата" aria-live="polite">
-        <p id="chat-empty" class="chat-empty">Опишите поездку своими словами: когда, с кем и на какой бюджет. Например: «В Сочи на майские, двое с ребёнком, до 80 тысяч».</p>
+        <p id="chat-empty" class="chat-empty">Опишите поездку своими словами: откуда, когда, с кем и на какой бюджет. Я соберу перелёт, трансфер и отель и проверю, что всё стыкуется. Например: «Из Москвы в Сочи на майские, двое с ребёнком, до 120 тысяч».</p>
       </div>
-      <div class="suggestions" aria-label="Примеры запросов">
-        <button class="chip" type="button" data-prompt="Хочу к морю в Сочи на выходные, нас двое, бюджет до 40 тысяч">К морю на выходные</button>
-        <button class="chip" type="button" data-prompt="Найди что-нибудь подешевле">Ещё дешевле</button>
-        <button class="chip" type="button" data-prompt="А если на два дня позже?">На два дня позже</button>
+      <div id="suggestions" class="suggestions" aria-label="Подсказки">
+        <button class="chip" type="button" data-prompt="Из Москвы в Сочи на майские, двое с ребёнком 6 лет, до 120 тысяч">На майские с ребёнком</button>
+        <button class="chip" type="button" data-prompt="Хочу к морю на выходные, нас двое, бюджет до 50 тысяч">К морю на выходные</button>
+        <button class="chip" type="button" data-prompt="В горы в январе на неделю, двое взрослых, до 200 тысяч">В горы в январе</button>
         <button class="chip" type="button" data-prompt="Оформляй">Оформить</button>
       </div>
       <form id="chat-form" class="chat-form-preview">
@@ -50,7 +50,7 @@
         <button id="chat-send" class="send" type="submit" aria-label="Отправить сообщение" disabled>↑</button>
       </form>
       <p id="chat-error" class="chat-error" role="status" hidden></p>
-      <p class="fineprint assistant-note">ИИ помогает выбрать. Решение всегда за вами. Отели — OpenStreetMap, цены и наличие — демо.</p>
+      <p class="fineprint assistant-note">ИИ помогает выбрать, решение за вами. Отели — OpenStreetMap, перелёты — цены Aviasales, цены отелей и такси — демо.</p>
     </main>
 
     <aside id="trip-panel" class="trip-panel" aria-labelledby="trip-title">
@@ -62,24 +62,30 @@
         <button id="trip-close" class="trip-close" type="button" aria-label="Скрыть поездку">×</button>
       </div>
       <div class="trip-body">
-        <p id="trip-empty" class="trip-empty">Здесь появятся подобранные отели, корзина и заказы.</p>
+        <p id="trip-empty" class="trip-empty">Здесь появятся готовые варианты поездки, маршрут по часам, корзина и заказы.</p>
         <section id="trip-orders-section" class="trip-section" hidden>
           <h3>Заказы</h3>
           <div id="trip-orders"></div>
         </section>
         <section id="trip-cart-section" class="trip-section" hidden>
-          <h3>Корзина</h3>
+          <h3>Ваша поездка</h3>
           <div id="trip-cart"></div>
         </section>
+        <section id="trip-packages-section" class="trip-section" hidden>
+          <h3>Готовые поездки <span id="package-note" class="muted"></span></h3>
+          <div id="weather" class="weather" hidden></div>
+          <div id="package-list" class="package-list"></div>
+          <div id="flex-hint"></div>
+        </section>
         <section id="trip-hotels-section" class="trip-section" hidden>
-          <h3>Варианты <span id="hotel-count" class="muted"></span></h3>
+          <h3>Отели <span id="hotel-count" class="muted"></span></h3>
           <div id="hotel-list" class="hotel-list"></div>
         </section>
         <section id="trip-flights-section" class="trip-section" hidden>
           <h3>Перелёты</h3>
           <div id="flight-list" class="flight-list"></div>
         </section>
-        <p class="attribution">Отели и расстояния: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">участники OpenStreetMap</a>, ODbL. Цены, наличие, питание и отмена — демо.</p>
+        <p class="attribution">Отели, расстояния и маршруты: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">участники OpenStreetMap</a>, ODbL. Перелёты — кэш цен Aviasales. Погода — <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>. Фото — сайты отелей и Wikimedia Commons. Цены отелей и такси, наличие, питание и отмена — демо.</p>
       </div>
     </aside>
   </div>
@@ -101,6 +107,11 @@
       <button id="rotate" type="button">Перевыпустить код</button>
       <button id="open-login" type="button" class="secondary">Войти в существующий аккаунт</button>
       <p id="message" role="status" aria-live="polite"></p>
+      <div class="memory-box">
+        <p class="label">Что агент помнит о вас</p>
+        <p id="memory-text" class="memory-text">Пока ничего: память появится после первой поездки.</p>
+        <button id="forget" type="button" class="secondary" hidden>Забыть всё</button>
+      </div>
     </div>
     <div id="login-view" hidden>
       <p class="panel-intro">Введите сохранённый код доступа. Аккаунт на этом устройстве переключится на найденный.</p>

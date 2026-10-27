@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -12,6 +13,12 @@ from backend import models  # noqa: F401 - register model before create_all
 
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(),
+                    format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
+# каждый HTTP-запрос клиентов виден и так по логам модели и инструментов
+for noisy in ("httpx", "httpx2", "httpcore", "openai", "urllib3"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def create_app(database_url: str | None = None, secret_key: str | None = None) -> FastAPI:

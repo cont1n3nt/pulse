@@ -10,18 +10,22 @@ ID чата служит `session_id` агента.
 |---|---|
 | `POST /api/chat` `{session_id, message}` | сообщение пользователя → поток событий |
 | `POST /api/chats/{id}/checkout` `{approved}` | кнопка «Оплатить» / «Отмена» → поток событий |
-| `GET /api/chats/{id}` | история чата + `trip`: выдача, корзина, заказы, ожидающее подтверждение |
+| `GET /api/chats/{id}` | история чата + `trip`: пакеты, погода, выдача, корзина с маршрутом, заказы, ожидающее подтверждение |
 | `GET /api/orders/{id}` | заказ (`Order`) |
+| `GET /api/memory`, `DELETE /api/memory` | что агент помнит о пользователе между чатами; стереть |
+| `GET /api/hotels/{id}/photo` | фото отеля (сайт отеля или Wikimedia Commons), 404 — фото нет; источник и подпись в заголовках `X-Photo-*` |
 
 ```python
 from backend.agent import stream_message, resume_checkout, pending_checkout, get_state, get_order
 ```
 
+`stream_message` и `resume_checkout` принимают `user_id` — ключ долговременной памяти.
+
 Бэк добавляет к потоку событие `chat` (обновлённые название и дата чата) перед `done`.
 
 Роуты объявлять через `def`, не `async def`: агент синхронный, FastAPI сам вынесет его в пул потоков.
 Для CLI и синхронного API есть `handle_message(session_id, text) -> AgentResponse`: тот же поток, собранный в один ответ
-(пример — `docs/api_example.py`).
+(пример — `docs/cli.py`).
 
 ### События потока
 
@@ -29,8 +33,8 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 |---|---|---|
 | `reasoning` | — | агент начал работу |
 | `tool` | `name` | инструмент отработал |
-| `block` | `block`, данные | карточки: `hotels`/`flights` (`items`), `cart` (`items`, `total_rub`, `issues`), `order` (`order`) |
-| `token` | `text` | кусок ответа модели |
+| `block` | `block`, данные | карточки: `packages` (`items`, `flex`, `weather`), `hotels`/`flights` (`items`), `cart` (`items`, `total_rub`, `issues`, `itinerary`), `order` (`order`), `reply` (`recommendation`, `suggestions`) — в конце хода |
+| `token` | `text` | кусок ответа модели (из поля `text` структурного ответа `AgentReply`, по мере генерации) |
 | `confirm` | `action: "checkout"`, `items`, `total_rub`, `issues` | агент ждёт подтверждения оплаты кнопкой |
 | `error` | `detail` | сбой; стек пишется только в лог сервера |
 | `done` | — | ход закончен |
@@ -73,7 +77,7 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 
 1. `checkout` проверяет поездку. Есть `blocker` — заказ не оформляется, модель получает причины.
 2. Иначе инструмент вызывает `interrupt()`: граф останавливается, клиент получает событие `confirm`.
-3. Кнопка шлёт `POST /api/sessions/{id}/checkout`. Граф продолжается с того же места, и инструмент выполняется
+3. Кнопка шлёт `POST /api/chats/{id}/checkout`. Граф продолжается с того же места, и инструмент выполняется
    заново с начала (поэтому до `interrupt()` у него нет побочных эффектов).
 4. При подтверждении `orders.create` пишет заказ в `backend/data/orders.db`. Повторное подтверждение той же версии корзины
    возвращает тот же заказ. Оплата имитируется (`payment: "simulated"`).
@@ -85,12 +89,15 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 
 ```
 backend/
-  main.py          FastAPI: SSE-роуты, состояние, заказы
+  main.py          FastAPI-приложение: авторизация, статика
+  endpoints.py     роуты: чаты, поток SSE, оплата, память, фото
   agent/
     __init__.py    публичный интерфейс — бэк импортирует только отсюда
-    contracts.py   ДОГОВОР: TripState, CartItem, Issue, Order, Block (менять вдвоём)
-    service.py     граф агента, состояние в чекпоинте, поток событий, подтверждение оплаты
-    trip.py        операции над состоянием, проверка поездки, сводка для модели (без LangChain)
+    contracts.py   ДОГОВОР: TripState, Package, CartItem, Issue, Order, Block, AgentReply (менять вдвоём)
+    service.py     граф агента, middleware, состояние в чекпоинте, поток событий, подтверждение оплаты
+    trip.py        операции над состоянием, проверка поездки, маршрут, сводка для модели (без LangChain)
+    packages.py    сборка пакетов «перелёт + трансфер + отель», сравнение в рублях, гибкие даты
+    memory.py      долговременная память о пользователе (хранилище LangGraph)
     orders.py      заказы в SQLite с защитой от повторного создания
     config.py      env + make_llm (OpenAI-совместимый)
     prompts.py     системный промпт
@@ -100,8 +107,8 @@ backend/
     tools/         инструменты агента; _state.py — общее для работы с состоянием
 docs/
   cli.py           терминал — тот же агент, подтверждение оплаты через y/n
-  api_example.py   пример синхронного FastAPI
-tests/             unit-тесты проверки и заказов, сквозной сценарий на фейковой модели
+evals/             сценарии на настоящей модели и отчёты прогонов
+scripts/           выгрузка отелей Сочи из OpenStreetMap в seed
 ```
 
 ## Как добавить новый источник (например, трансферы)
@@ -119,7 +126,7 @@ tests/             unit-тесты проверки и заказов, скво�
 uv sync
 cp .env.example .env    # вписать ключи (LLM_API_KEY, TRAVELPAYOUTS_TOKEN)
 uv run python -m docs.cli
-uv run pytest           # без ключей: модель в сквозном тесте фейковая
+uv run python -m evals.run   # сценарии на настоящей модели
 ```
 
 После обновления с прежней версии удалите `backend/data/agent_memory.db`: в старых сессиях нет состояния поездки.

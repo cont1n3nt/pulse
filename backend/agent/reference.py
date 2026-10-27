@@ -80,3 +80,11 @@ def find_city(name: str, limit: int = 3) -> list[dict]:
     if (hit := FALLBACK.get(query.replace("-", " ")) or FALLBACK.get(query)):
         return [{"code": hit[0], "name": hit[1], "country": hit[2]}]
     return []
+
+
+def city_name(code: str) -> str:
+    """Название города по IATA-коду; сам код, если справочник недоступен."""
+    for c in cities():
+        if c.get("code") == code:
+            return c.get("name") or code
+    return next((hit[1] for hit in FALLBACK.values() if hit[0] == code), code)

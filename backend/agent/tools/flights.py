@@ -1,7 +1,7 @@
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
-from ..adapters.aviasales import SourceUnavailable, fetch_flights
+from ..adapters.aviasales import fetch_flights
 from ..reference import find_city
 from ._state import current_trip, emit, result
 
@@ -34,11 +34,8 @@ def search_flights(origin: str, destination: str, departure: str, runtime: ToolR
         departure: месяц YYYY-MM или точная дата YYYY-MM-DD.
         limit: сколько вариантов вернуть (1–10).
     """
-    try:
-        flights = fetch_flights(origin, destination, departure, None, limit)
-    except SourceUnavailable as exc:
-        return result(runtime, "search_flights",
-                      f"Сервис цен Aviasales недоступен ({exc}). Скажи честно, цены не выдумывай.", [])
+    # сбой сети пробрасываем: ToolRetryMiddleware повторит вызов, а потом сообщит модели
+    flights = fetch_flights(origin, destination, departure, None, limit)
 
     if not flights:
         return result(runtime, "search_flights",

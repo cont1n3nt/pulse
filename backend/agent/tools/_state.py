@@ -8,7 +8,7 @@ from langgraph.types import Command
 
 from ..adapters import hotels as hotels_db
 from ..contracts import Requirements, TripState
-from ..trip import refresh
+from ..trip import itinerary, refresh
 
 MAX_NIGHTS = 30
 CLEAR_WORDS = ("", "любой", "любое", "неважно", "не важно")
@@ -26,14 +26,24 @@ def session_id(runtime: ToolRuntime) -> str:
     return runtime.config["configurable"]["thread_id"]
 
 
+def user_id(runtime: ToolRuntime) -> str | None:
+    """Владелец чата: ключ долговременной памяти. None в CLI и тестах — тогда память не пишется."""
+    return runtime.config["configurable"].get("user_id")
+
+
 def emit(runtime: ToolRuntime, block: str, **data) -> None:
     """Блок для фронта: уходит в SSE сразу, не дожидаясь ответа модели."""
     runtime.stream_writer({"type": "block", "block": block, **data})
 
 
+def cart_block(trip: TripState) -> dict:
+    """Корзина для фронта: позиции, итог, проблемы и таймлайн поездки."""
+    return {"items": [c.model_dump(mode="json") for c in trip.cart], "total_rub": trip.cart_total_rub,
+            "issues": [i.model_dump() for i in trip.issues], "itinerary": itinerary(trip)}
+
+
 def emit_cart(runtime: ToolRuntime, trip: TripState) -> None:
-    emit(runtime, "cart", items=[c.model_dump(mode="json") for c in trip.cart],
-         total_rub=trip.cart_total_rub, issues=[i.model_dump() for i in trip.issues])
+    emit(runtime, "cart", **cart_block(trip))
 
 
 def result(runtime: ToolRuntime, name: str, text: str, ops: list[dict]) -> Command:

@@ -12,7 +12,7 @@ from datetime import date, time, timedelta, timezone
 from functools import lru_cache
 
 from ..config import SEED_DIR
-from ..contracts import HotelOption
+from ..contracts import HotelOption, TransferOption
 from ..guardrails import sanitize_hotel
 
 DISTRICTS = ("Адлер", "Центр", "Сириус", "Красная Поляна", "Хоста", "Лазаревское")
@@ -26,8 +26,14 @@ LOCAL_TZ = timezone(timedelta(hours=3))  # Сочи, MSK
 AIRPORTS = ("AER",)
 CHECK_IN_TIME = time(14, 0)
 CHECK_OUT_TIME = time(12, 0)
-TRANSFER_SPEED_KMH = 35  # средняя скорость такси по Сочи с пробками
-TRANSFER_OVERHEAD_MIN = 30  # выход из аэропорта, багаж, ожидание машины
+TRANSFER_SPEED_KMH = 35  # если маршрута нет: средняя скорость такси по Сочи с пробками
+TRAFFIC_FACTOR = 1.3  # маршрут OSRM — без пробок, курортные дороги загружены
+TRANSFER_OVERHEAD_MIN = 20  # выход из аэропорта, багаж, ожидание машины
+# Демо-тариф такси аэропорт ⇄ отель (допущение, порядок цен Сочи): посадка + километры, минивэн дороже
+TAXI_BASE_RUB = 500
+TAXI_PER_KM_RUB = 38
+MINIVAN_FACTOR = 1.5
+MINIVAN_FROM_GUESTS = 5
 
 # коэффициенты сезона по месяцам
 _COAST = {1: 0.7, 2: 0.7, 3: 0.7, 4: 0.7, 5: 1.0, 6: 1.3, 7: 1.6, 8: 1.6,
@@ -127,7 +133,13 @@ def _priced(raw: dict, check_in: date, check_out: date) -> HotelOption:
 
 def search(check_in: date, check_out: date, district: str | None = None,
            max_price_per_night: int | None = None, must_have=(), near_sea: bool = False,
-           exclude_kinds=(), limit: int = 5) -> list[HotelOption]:
+           exclude_kinds=(), limit: int = 5, diversify: bool = True,
+           target_per_night: int | None = None) -> list[HotelOption]:
+    """Отели под условия в порядке ранжирования.
+
+    max_price_per_night отсекает дороже лимита. target_per_night только сдвигает ориентир цены
+    в ранжировании, ничего не отсекая: для пакетов, где бюджет проверяется по итогу поездки.
+    """
     found = []
     for raw in _load():
         if district and raw["district"].lower() != district.lower():
@@ -150,9 +162,11 @@ def search(check_in: date, check_out: date, district: str | None = None,
         return []
     prices = sorted(hotel.price_per_night_rub for _, hotel, _ in found)
     # ориентир цены: большая часть лимита за ночь, а без лимита — середина выдачи
-    target = 0.7 * max_price_per_night if max_price_per_night else prices[len(prices) // 2]
+    limit_hint = max_price_per_night or target_per_night
+    target = 0.7 * limit_hint if limit_hint else prices[len(prices) // 2]
     ranked = sorted(found, key=lambda t: score(t[0], t[1].price_per_night_rub, target, t[2]), reverse=True)
-    return diverse([hotel for _, hotel, _ in ranked], limit)
+    hotels = [hotel for _, hotel, _ in ranked]
+    return diverse(hotels, limit) if diversify else hotels[:limit]
 
 
 # Порядок выдачи. Самые дешёвые первыми — это всегда хостелы и безымянные комнаты, даже при
@@ -222,7 +236,22 @@ def get(hotel_id: str) -> HotelOption | None:
 
 
 def transfer_minutes(hotel: HotelOption) -> int | None:
-    """Оценка дороги от аэропорта до отеля, включая выход из аэропорта."""
+    """Дорога от аэропорта до отеля с выходом из аэропорта: маршрут по дорогам OSM с запасом
+    на пробки, а без маршрута — по прямой со средней скоростью."""
+    if hotel.airport_drive_min is not None:
+        return round(hotel.airport_drive_min * TRAFFIC_FACTOR) + TRANSFER_OVERHEAD_MIN
     if hotel.distance_to_airport_km is None:
         return None
     return round(hotel.distance_to_airport_km / TRANSFER_SPEED_KMH * 60) + TRANSFER_OVERHEAD_MIN
+
+
+def transfer(hotel: HotelOption, guests: int) -> TransferOption | None:
+    """Такси аэропорт → отель и обратно: время реальное по дорогам, цена — демо-тариф."""
+    minutes = transfer_minutes(hotel)
+    km = hotel.airport_drive_km or hotel.distance_to_airport_km
+    if minutes is None or km is None:
+        return None
+    minivan = guests >= MINIVAN_FROM_GUESTS
+    one_way = (TAXI_BASE_RUB + TAXI_PER_KM_RUB * km) * (MINIVAN_FACTOR if minivan else 1)
+    return TransferOption(hotel_id=hotel.id, minutes=minutes, km=km, price_rub=round(one_way / 50) * 50 * 2,
+                          car="minivan" if minivan else "standard")

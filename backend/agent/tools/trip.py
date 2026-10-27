@@ -4,10 +4,10 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from langgraph.types import interrupt
 
-from .. import orders
+from .. import memory, orders
 from ..contracts import Requirements
 from ..trip import apply, describe_cart, describe_issues, diff_requirements, make_cart_item, refresh
-from ._state import BadInput, current_trip, emit, emit_cart, prepare_changes, result, session_id
+from ._state import BadInput, current_trip, emit, emit_cart, prepare_changes, result, session_id, user_id
 
 
 @tool
@@ -20,7 +20,7 @@ def update_requirements(runtime: ToolRuntime, check_in: str | None = None, check
     """Запомнить новые или изменённые условия поездки. Передавай только то, что изменилось.
 
     Вызывай, когда пользователь называет или меняет даты, гостей, бюджет, район, удобства,
-    город вылета. Потом повтори поиск: search_hotels() возьмёт обновлённые условия сам.
+    город вылета. Потом повтори подбор: plan_trip() или search_hotels() возьмут условия сам.
 
     Args:
         check_in: дата заезда YYYY-MM-DD. Если передать только её, длительность сохранится.
@@ -54,6 +54,7 @@ def update_requirements(runtime: ToolRuntime, check_in: str | None = None, check
         return result(runtime, "update_requirements", "Ничего не изменилось: эти условия уже сохранены.", [])
 
     new = Requirements.model_validate(trip.requirements.model_dump() | changes)
+    memory.learn_requirements(runtime.store, user_id(runtime), new)
     lines = [remark.strip()] if remark else []
     if changes:
         # первое заполнение условий — не «изменение»: иначе модель начинает ответ с «Что изменилось»
@@ -155,9 +156,29 @@ def checkout(runtime: ToolRuntime):
 
     order = orders.create(session_id(runtime), trip.version, trip.cart, trip.cart_total_rub)
     emit(runtime, "order", order=order.model_dump(mode="json"))
-    text = (f"Заказ {order.id} оформлен, оплата имитирована. Итого {order.total_rub} ₽.\n"
-            f"Назови пользователю номер заказа и коротко, что в него вошло.")
+    hotel = next((c.title for c in order.items if c.kind == "hotel"), "без отеля")
+    memory.remember_order(runtime.store, user_id(runtime), order.id, f"{hotel}, итого {order.total_rub} ₽")
+    text = (f"Заказ {order.id} оформлен, оплата имитирована (демо, деньги не списаны). Итого {order.total_rub} ₽.\n"
+            f"Назови пользователю номер заказа, коротко что в него вошло, и что оплата демонстрационная. "
+            f"Не пиши, что оплата прошла.")
     return result(runtime, "checkout", text, [{"op": "order", "order_id": order.id}])
 
 
-TOOLS = [update_requirements, add_to_cart, remove_from_cart, validate_trip, checkout]
+@tool
+def remember(fact: str, runtime: ToolRuntime) -> str:
+    """Запомнить устойчивое предпочтение пользователя для следующих поездок.
+
+    Только когда пользователь сам говорит о привычке или просит запомнить: «я всегда беру
+    с завтраком», «у нас аллергия на кошек», «запомни, что летаем из Казани». Не для условий
+    этой поездки — их сохраняет update_requirements.
+
+    Args:
+        fact: короткая формулировка от третьего лица: «предпочитает отели с завтраком».
+    """
+    if not user_id(runtime):
+        return "Память недоступна в этом режиме, просто учти это в текущей поездке."
+    memory.remember_fact(runtime.store, user_id(runtime), fact.strip())
+    return "Запомнил. Скажи пользователю, что учтёшь это и в следующих поездках."
+
+
+TOOLS = [update_requirements, add_to_cart, remove_from_cart, validate_trip, checkout, remember]
