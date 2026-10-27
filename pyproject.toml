@@ -1,7 +1,7 @@
 [project]
 name = "pulse"
 version = "0.1.0"
-description = "Pulse: тревел-агент (поиск авиабилетов) на FastAPI и LangChain"
+description = "Pulse: агент, который собирает поездку в Сочи целиком (перелёт, трансфер, отель) на FastAPI и LangChain"
 readme = "README.md"
 authors = [
     { name = "cont1n3nt", email = "82307344+cont1n3nt@users.noreply.github.com" }

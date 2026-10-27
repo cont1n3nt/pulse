@@ -82,10 +82,3 @@ def get(order_id: str) -> Order | None:
     with _LOCK:
         row = _db().execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
     return _row(row) if row else None
-
-
-def by_session(session_id: str) -> list[Order]:
-    with _LOCK:
-        rows = _db().execute("SELECT * FROM orders WHERE session_id = ? ORDER BY created_at",
-                             (session_id,)).fetchall()
-    return [_row(r) for r in rows]

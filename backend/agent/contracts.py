@@ -1,5 +1,4 @@
-"""КОНТРАКТ между агентом и бэком
-"""
+"""Контракт между агентом и бэком: варианты поездки, состояние, заказ, ответ агента."""
 
 from datetime import date, datetime
 from typing import Literal
@@ -38,6 +37,9 @@ class HotelOption(BaseModel):
     lon: float
     distance_to_sea_m: int | None = None
     distance_to_airport_km: float | None = None
+    # дорога из аэропорта по графу дорог OSM (OSRM), без пробок
+    airport_drive_min: int | None = None
+    airport_drive_km: float | None = None
     # коды: wifi, pool, parking, kids, pets, breakfast, beach_line, spa; None = «нет данных»
     amenities: dict[str, bool | None]
     description: str | None = None
@@ -47,6 +49,7 @@ class HotelOption(BaseModel):
     tips: list[str] = Field(default_factory=list)
     photos: list[str] = Field(default_factory=list)
     website: str | None = None
+    phone: str | None = None
     osm_url: str | None = None  # объект на openstreetmap.org: любой факт можно проверить
     # результат поиска (заполняет адаптер)
     check_in: date | None = None
@@ -57,6 +60,34 @@ class HotelOption(BaseModel):
     available: bool | None = None
     meal: Literal["none", "breakfast", "half_board", "all_inclusive"] | None = None
     free_cancellation: bool | None = None
+
+
+class TransferOption(BaseModel):
+    """Такси аэропорт ⇄ отель, туда и обратно. Время — по дорогам OSM, цена — демо-тариф."""
+    hotel_id: str
+    minutes: int  # в одну сторону, с выходом из аэропорта и запасом на пробки
+    km: float | None = None
+    trips: int = 2
+    price_rub: int  # за все поездки, на машину
+    car: Literal["standard", "minivan"] = "standard"
+    is_demo: bool = True
+
+
+class Package(BaseModel):
+    """Готовый вариант поездки: перелёты туда и обратно, трансфер и отель с одной итоговой суммой."""
+    id: Literal["economy", "optimum", "comfort"]
+    label: str
+    hotel: HotelOption
+    outbound: FlightOption | None = None
+    back: FlightOption | None = None
+    transfer: TransferOption | None = None
+    flights_rub: int | None = None  # за всех пассажиров, туда и обратно
+    total_rub: int
+    per_person_rub: int
+    within_budget: bool | None = None
+    highlights: list[str] = Field(default_factory=list)  # чем хорош, факты
+    tradeoffs: list[str] = Field(default_factory=list)  # чем отличается от соседнего варианта, в рублях
+    issues: list["Issue"] = Field(default_factory=list)
 
 
 class Requirements(BaseModel):
@@ -101,10 +132,25 @@ class TripState(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     flights: list[FlightOption] = Field(default_factory=list)
     hotels: list[HotelOption] = Field(default_factory=list)
+    packages: list[Package] = Field(default_factory=list)
+    weather: dict | None = None  # погода на даты поездки: adapters/weather.trip_weather
     cart: list[CartItem] = Field(default_factory=list)
     cart_total_rub: int = 0
     issues: list[Issue] = Field(default_factory=list)
     orders: list[str] = Field(default_factory=list)
+
+
+class AgentReply(BaseModel):
+    """Ответ пользователю. Вызывай один раз, в самом конце хода, когда все нужные инструменты уже отработали."""
+    text: str = Field(description="Текст ответа: обычные предложения без разметки, до 100 слов")
+    recommendation: str | None = Field(
+        default=None,
+        description="id пакета (economy, optimum, comfort) или отеля из последней выдачи, который советуешь; "
+                    "null, если советовать нечего")
+    suggestions: list[str] = Field(
+        default_factory=list,
+        description="2–3 коротких следующих реплики от лица пользователя для кнопок, до 30 символов: "
+                    "«Беру Оптимум», «А на день раньше?», «Покажи дешевле»")
 
 
 class Order(BaseModel):
@@ -118,8 +164,7 @@ class Order(BaseModel):
 
 
 class Block(BaseModel):
-    type: Literal["flights", "hotels", "comparison", "itinerary", "cart", "order", "confirm",
-                  "question", "error"]
+    type: Literal["flights", "hotels", "packages", "cart", "order", "confirm", "reply", "error"]
     data: dict
 
 
@@ -131,6 +176,4 @@ class AgentResponse(BaseModel):
     tool_calls: list[str] = Field(default_factory=list)
 
 
-class ChatRequest(BaseModel):
-    session_id: str
-    message: str
+Package.model_rebuild()  # ссылается на Issue, объявленный ниже

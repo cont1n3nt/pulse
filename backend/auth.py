@@ -16,7 +16,6 @@ class AuthState:
             raise ValueError("PULSE_AUTH_KEY must contain at least 32 bytes")
         self.key = secret_key.encode("utf-8")
         self.lock = threading.RLock()
-        self.sessions: dict[str, tuple[str, float]] = {}
         self.login_attempts: dict[str, deque[float]] = defaultdict(deque)
 
     def digest(self, code: str) -> str:
@@ -26,23 +25,19 @@ class AuthState:
         return secrets.token_urlsafe(32)
 
     def get_user_id(self, token: str | None) -> str | None:
-        if not token:
+        """Токен вида user_id.expires.подпись: проверяется ключом, поэтому переживает перезапуск."""
+        if not token or token.count(".") != 2:
             return None
-        with self.lock:
-            session = self.sessions.get(token)
-            if session is None:
-                return None
-            user_id, expires = session
-            if expires <= time.time():
-                del self.sessions[token]
-                return None
-            return user_id
+        user_id, expires, signature = token.split(".")
+        if not hmac.compare_digest(signature, self.digest(f"session:{user_id}.{expires}")):
+            return None
+        if not expires.isdigit() or int(expires) <= time.time():
+            return None
+        return user_id
 
     def new_session(self, user_id: str) -> str:
-        token = secrets.token_urlsafe(32)
-        with self.lock:
-            self.sessions[token] = (user_id, time.time() + SESSION_AGE)
-        return token
+        expires = int(time.time()) + SESSION_AGE
+        return f"{user_id}.{expires}.{self.digest(f'session:{user_id}.{expires}')}"
 
     def allow_login(self, address: str) -> bool:
         now = time.monotonic()

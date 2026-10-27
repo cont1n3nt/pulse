@@ -24,7 +24,6 @@ const chatList = document.querySelector('#chat-list');
 const chatTitle = document.querySelector('#chat-title');
 const newChatButton = document.querySelector('#new-chat');
 const chatsToggle = document.querySelector('#chats-toggle');
-const tripPanel = document.querySelector('#trip-panel');
 const tripToggle = document.querySelector('#trip-toggle');
 const tripClose = document.querySelector('#trip-close');
 const tripBackdrop = document.querySelector('#trip-backdrop');
@@ -36,7 +35,16 @@ const hotelCount = document.querySelector('#hotel-count');
 const flightList = document.querySelector('#flight-list');
 const tripCart = document.querySelector('#trip-cart');
 const tripOrders = document.querySelector('#trip-orders');
+const packageList = document.querySelector('#package-list');
+const packageNote = document.querySelector('#package-note');
+const weatherBox = document.querySelector('#weather');
+const flexHint = document.querySelector('#flex-hint');
+const suggestionsBox = document.querySelector('#suggestions');
+const defaultSuggestions = [...suggestionsBox.children];
+const memoryText = document.querySelector('#memory-text');
+const forgetButton = document.querySelector('#forget');
 const sections = {
+  packages: document.querySelector('#trip-packages-section'),
   hotels: document.querySelector('#trip-hotels-section'),
   flights: document.querySelector('#trip-flights-section'),
   cart: document.querySelector('#trip-cart-section'),
@@ -51,7 +59,7 @@ let currentCode = null;
 let visible = false;
 let dragOffset = null;
 // что сейчас показано в панели поездки: из этого считается заголовок и счётчик на кнопке
-let tripView = { hotels: [], flights: [], cart: null, orders: [] };
+let tripView = { packages: [], weather: null, flex: null, recommendation: null, hotels: [], flights: [], cart: null, orders: [] };
 
 function keepPanelInViewport() {
   if (accountPanel.hidden) return;
@@ -123,7 +131,33 @@ function setLoginMode(active) {
   centerPanel();
 }
 
-profileToggle.addEventListener('click', () => setPanelOpen(accountPanel.hidden));
+profileToggle.addEventListener('click', () => {
+  const opening = accountPanel.hidden;
+  setPanelOpen(opening);
+  if (opening) loadMemory();
+});
+
+// Долговременная память агента: пользователь видит, что о нём помнят, и может стереть
+async function loadMemory() {
+  try {
+    const data = await api('/api/memory');
+    memoryText.textContent = data.text || 'Пока ничего: память появится после первой поездки.';
+    forgetButton.hidden = !data.text;
+  } catch {
+    memoryText.textContent = 'Не удалось загрузить.';
+  }
+}
+forgetButton.addEventListener('click', async () => {
+  if (!confirm('Агент забудет город вылета, состав семьи, предпочтения и прошлые заказы. Продолжить?')) return;
+  try {
+    const response = await fetch('/api/memory', { method: 'DELETE', credentials: 'same-origin' });
+    if (!response.ok) throw new Error();
+    memoryText.textContent = 'Память очищена.';
+    forgetButton.hidden = true;
+  } catch {
+    memoryText.textContent = 'Не удалось очистить память.';
+  }
+});
 closePanelButton.addEventListener('click', () => setPanelOpen(false));
 
 async function api(path, options = {}) {
@@ -143,7 +177,7 @@ function setChatBusy(busy) {
   chatSend.disabled = !activeChatId || busy;
   chatInput.disabled = !activeChatId || busy;
   chatList.querySelectorAll('button').forEach((button) => { button.disabled = busy; });
-  document.querySelectorAll('.suggestions .chip, .choose-hotel').forEach((button) => { button.disabled = !activeChatId || busy; });
+  document.querySelectorAll('.suggestions .chip, .choose-hotel, .choose-package, .flex-button').forEach((button) => { button.disabled = !activeChatId || busy; });
 }
 
 function setChatsOpen(open) {
@@ -196,6 +230,10 @@ const KINDS = { hotel: 'Отель', guest_house: 'Гостевой дом', apa
 const MEALS = { none: 'без питания', breakfast: 'завтрак', half_board: 'полупансион', all_inclusive: 'всё включено' };
 const SEVERITY = { blocker: 'мешает оформить', warning: 'внимание', info: 'к сведению' };
 const TOOL_STATUS = {
+  plan_trip: 'Собираю поездку: рейсы, отели, трансфер, погода…',
+  choose_package: 'Кладу поездку в корзину и проверяю…',
+  holiday_dates: 'Смотрю календарь праздников…',
+  remember: 'Запоминаю…',
   update_requirements: 'Запоминаю условия…',
   search_hotels: 'Ищу отели…',
   get_hotel_details: 'Смотрю детали отеля…',
@@ -227,8 +265,153 @@ function plural(n, one, few, many) {
 const shortDate = (iso) => new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
 const shortTime = (iso) => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
+// --- фото отелей: подгружаются, когда карточка показалась на экране ------------------------
+
+const photoCache = new Map();
+
+function loadPhoto(hotelId) {
+  if (!photoCache.has(hotelId)) {
+    photoCache.set(hotelId, fetch(`/api/hotels/${encodeURIComponent(hotelId)}/photo`, { credentials: 'same-origin' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const credit = decodeURIComponent(response.headers.get('X-Photo-Credit') || '');
+        const page = decodeURIComponent(response.headers.get('X-Photo-Page') || '');
+        return { url: URL.createObjectURL(await response.blob()), credit, page, source: response.headers.get('X-Photo-Source') };
+      })
+      .catch(() => null));
+  }
+  return photoCache.get(hotelId);
+}
+
+const photoObserver = new IntersectionObserver((entries) => {
+  for (const entry of entries) {
+    if (!entry.isIntersecting) continue;
+    photoObserver.unobserve(entry.target);
+    fillPhoto(entry.target);
+  }
+}, { rootMargin: '200px' });
+
+async function fillPhoto(box) {
+  const photo = await loadPhoto(box.dataset.hotel);
+  if (!photo) {
+    box.classList.add('no-photo');
+    return;
+  }
+  const img = el('img');
+  img.alt = '';
+  img.src = photo.url;
+  box.replaceChildren(img);
+  const credit = photo.page && /^https?:\/\//.test(photo.page) ? el('a', 'photo-credit') : el('span', 'photo-credit');
+  credit.textContent = photo.source === 'site' ? `фото: ${photo.credit}` : `рядом с отелем · ${photo.credit}`;
+  if (credit.tagName === 'A') {
+    credit.href = photo.page;
+    credit.target = '_blank';
+    credit.rel = 'noopener noreferrer';
+  }
+  box.append(credit);
+}
+
+// Пока фото нет — плашка с фактами о месте: район и море. Фото подставится, если найдётся.
+function photoBox(hotel) {
+  const box = el('div', 'photo');
+  box.dataset.hotel = hotel.id;
+  const sea = hotel.distance_to_sea_m != null ? `до моря ${hotel.distance_to_sea_m} м` : 'горы';
+  box.append(el('span', 'photo-placeholder', `${hotel.district} · ${sea}`));
+  photoObserver.observe(box);
+  return box;
+}
+
+// --- готовые поездки: перелёты + трансфер + отель ------------------------------------------
+
+const localTime = (iso) => iso.slice(11, 16);
+const localDay = (iso) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+
+function flightLine(flight, label) {
+  if (!flight) return null;
+  // время рейса — местное, как в билете: берём из строки, не пересчитывая в пояс браузера
+  return el('p', 'pkg-flight', `${label}: ${localDay(flight.depart_at)} ${localTime(flight.depart_at)} → ${localTime(flight.arrive_at)} · ${flight.carrier_name}`);
+}
+
+function packageCard(pkg, compact = false) {
+  const recommended = tripView.recommendation === pkg.id;
+  const card = el('article', `package-card${recommended ? ' recommended' : ''}${compact ? ' compact' : ''}`);
+  if (!compact) card.append(photoBox(pkg.hotel));
+  const top = el('div', 'pkg-top');
+  top.append(el('span', `tier ${pkg.id}`, pkg.label));
+  if (recommended) top.append(el('span', 'badge', 'Советую'));
+  card.append(top, el('h4', '', pkg.hotel.name), el('p', 'muted', pkg.highlights.slice(0, compact ? 3 : 5).join(' · ')));
+
+  if (!compact) {
+    for (const line of [flightLine(pkg.outbound, 'Туда'), flightLine(pkg.back, 'Обратно')]) if (line) card.append(line);
+    if (pkg.transfer) card.append(el('p', 'pkg-flight', `Такси из аэропорта ~${pkg.transfer.minutes} мин · ${rub(pkg.transfer.price_rub)} туда-обратно`));
+  }
+  for (const text of pkg.tradeoffs) card.append(el('p', 'tradeoff', text));
+  const problems = (pkg.issues ?? []).filter((issue) => issue.severity !== 'info');
+  if (problems.length && !compact) card.append(issueList(problems));
+  else if (problems.length) card.append(el('p', 'warn-count', `⚠ ${problems.length} ${plural(problems.length, 'нюанс', 'нюанса', 'нюансов')}`));
+
+  const bottom = el('div', 'hotel-bottom');
+  const price = el('div');
+  price.append(el('strong', 'price', rub(pkg.total_rub)));
+  price.append(el('p', 'fineprint', `${rub(pkg.per_person_rub)} на человека${pkg.within_budget === false ? ' · сверх бюджета' : ''}`));
+  bottom.append(price);
+  const inCart = (tripView.cart?.items ?? []).some((item) => item.kind === 'hotel' && item.option_id === pkg.hotel.id);
+  if (inCart) {
+    bottom.append(el('span', 'in-cart', 'В корзине'));
+  } else {
+    const choose = el('button', 'choose-package', 'Выбрать');
+    choose.type = 'button';
+    choose.disabled = chatBusy || !activeChatId;
+    choose.addEventListener('click', () => sendMessage(`Беру ${pkg.label}`));
+    bottom.append(choose);
+  }
+  card.append(bottom);
+  return card;
+}
+
+function weatherContent(weather) {
+  const box = el('div', 'weather-row');
+  for (const day of weather.days.slice(0, 7)) {
+    const cell = el('div', 'weather-day');
+    cell.append(el('span', 'muted', localDay(day.date)), el('strong', '', `${day.t_max}°`), el('span', 'muted', `${day.t_min}°`));
+    cell.title = day.summary;
+    box.append(cell);
+  }
+  const note = [weather.sea ? `Море ${weather.sea.t}° (${weather.sea.source})` : null, weather.source].filter(Boolean).join(' · ');
+  return [box, el('p', 'fineprint', note)];
+}
+
+function flexContent(flex) {
+  if (!flex) return [];
+  const days = Math.abs(flex.shift_days);
+  const when = `${flex.shift_days < 0 ? 'раньше' : 'позже'} на ${days} ${plural(days, 'день', 'дня', 'дней')}`;
+  const button = el('button', 'flex-button', `Сдвинуть ${when}: дешевле на ${rub(flex.saving_rub)}`);
+  button.type = 'button';
+  button.disabled = chatBusy || !activeChatId;
+  button.addEventListener('click', () => sendMessage(`Давай сдвинем поездку ${when}: с ${localDay(flex.check_in)} по ${localDay(flex.check_out)}`));
+  return [button];
+}
+
+const STEP_ICONS = { flight: '✈', transfer: '→', checkin: '⌂', day: '·', checkout: '↗' };
+
+function timeline(steps) {
+  const list = el('ol', 'timeline');
+  for (const step of steps) {
+    const row = el('li', `step ${step.kind}${step.issues.length ? ' has-issue' : ''}`);
+    const when = step.kind === 'day' ? '' : `${localDay(step.at)} ${localTime(step.at)}`;
+    row.append(el('span', 'step-icon', STEP_ICONS[step.kind] ?? '•'));
+    const body = el('div', 'step-body');
+    body.append(el('p', 'step-title', [when, step.title].filter(Boolean).join(' · ')), el('p', 'muted', step.detail));
+    if (step.issues.length) body.append(issueList(step.issues));
+    row.append(body);
+    list.append(row);
+  }
+  return list;
+}
+
 function hotelCard(hotel, cartIds) {
   const card = el('article', 'hotel-card');
+  card.append(photoBox(hotel));
   const top = el('div', 'hotel-top');
   top.append(el('span', '', [hotel.stars ? `${hotel.stars}★` : '', KINDS[hotel.kind] ?? hotel.kind].filter(Boolean).join(' · ')));
   if (hotel.source === 'osm') top.append(el('span', 'tag', 'OSM'));
@@ -297,14 +480,21 @@ function itemRows(items) {
   return list;
 }
 
-function cartContent(cart) {
+// В панели — с маршрутом по часам, где проблемы стоят у своего шага; в чате — коротко
+function cartContent(cart, withTimeline = false) {
   const box = el('div', 'cart-box');
   if (!cart.items.length) {
     box.append(el('p', 'muted', 'Корзина пуста'));
   } else {
     box.append(itemRows(cart.items), el('p', 'cart-total', `Итого ${rub(cart.total_rub)} · ориентировочно`));
   }
-  if (cart.issues?.length) box.append(issueList(cart.issues));
+  let issues = cart.issues ?? [];
+  if (withTimeline && cart.itinerary?.length) {
+    const shown = new Set(cart.itinerary.flatMap((step) => step.issues.map((issue) => issue.code)));
+    box.append(el('p', 'card-title timeline-title', 'Маршрут'), timeline(cart.itinerary));
+    issues = issues.filter((issue) => !shown.has(issue.code));
+  }
+  if (issues.length) box.append(issueList(issues));
   return box;
 }
 
@@ -321,8 +511,15 @@ function orderContent(order) {
 // --- панель поездки -------------------------------------------------------------------------
 
 function renderTrip() {
-  const { hotels, flights, cart, orders } = tripView;
+  const { packages, weather, flex, hotels, flights, cart, orders } = tripView;
   const cartIds = new Set((cart?.items ?? []).map((item) => item.option_id));
+
+  packageList.replaceChildren(...packages.map((pkg) => packageCard(pkg)));
+  packageNote.textContent = packages.length ? 'перелёт + трансфер + отель' : '';
+  weatherBox.replaceChildren(...(weather ? weatherContent(weather) : []));
+  weatherBox.hidden = !weather || !packages.length;
+  flexHint.replaceChildren(...flexContent(flex));
+  sections.packages.hidden = !packages.length;
 
   hotelList.replaceChildren(...hotels.map((hotel) => hotelCard(hotel, cartIds)));
   hotelCount.textContent = hotels.length ? `${hotels.length} ${plural(hotels.length, 'отель', 'отеля', 'отелей')}` : '';
@@ -339,20 +536,20 @@ function renderTrip() {
   }));
   sections.flights.hidden = !flights.length;
 
-  tripCart.replaceChildren(...(cart?.items.length ? [cartContent(cart)] : []));
+  tripCart.replaceChildren(...(cart?.items.length ? [cartContent(cart, true)] : []));
   sections.cart.hidden = !cart?.items.length;
 
   tripOrders.replaceChildren(...orders.map(orderContent));
   sections.orders.hidden = !orders.length;
 
-  const empty = !hotels.length && !flights.length && !cart?.items.length && !orders.length;
+  const empty = !packages.length && !hotels.length && !flights.length && !cart?.items.length && !orders.length;
   tripEmpty.hidden = !empty;
-  const hotel = hotels[0];
+  const hotel = packages[0]?.hotel ?? hotels[0];
   tripTitle.textContent = orders.length && !cart?.items.length
     ? 'Поездка оформлена'
     : hotel ? `Сочи · ${shortDate(hotel.check_in)} – ${shortDate(hotel.check_out)}` : 'Пока пусто';
 
-  const count = cart?.items.length || hotels.length;
+  const count = cart?.items.length || packages.length || hotels.length;
   tripBadge.textContent = count ? String(count) : '';
   tripBadge.hidden = !count;
   tripBadge.classList.toggle('filled', Boolean(cart?.items.length));
@@ -360,6 +557,10 @@ function renderTrip() {
 
 function resetTrip(trip) {
   tripView = {
+    packages: trip?.packages ?? [],
+    weather: trip?.weather ?? null,
+    flex: null,
+    recommendation: null,
     hotels: trip?.hotels ?? [],
     flights: trip?.flights ?? [],
     cart: trip?.cart ?? null,
@@ -378,6 +579,7 @@ function clearChat() {
   resizeChatInput();
   chatError.hidden = true;
   resetTrip(null);
+  setSuggestions(null);
 }
 
 function scrollChat() {
@@ -436,6 +638,42 @@ function showCartInChat(reply, cart) {
   chatMessages.querySelectorAll('.chat-card.cart').forEach((card) => card.remove());
   const title = el('p', 'card-title', 'Ваша поездка');
   reply.addCard(chatCard('cart', title, cartContent(cart)));
+}
+
+// Пакеты в чате — короткими карточками в ряд; подробности, фото и маршрут — в панели поездки
+function showPackagesInChat(reply, packages) {
+  const row = el('div', 'package-row');
+  row.append(...packages.map((pkg) => packageCard(pkg, true)));
+  reply.addCard(row);
+}
+
+// Рекомендация приходит в конце ответа: перерисовываем пакеты этого ответа с отметкой «Советую»
+function markRecommended(reply) {
+  const row = reply.cards.querySelector('.package-row');
+  if (row) row.replaceChildren(...tripView.packages.map((pkg) => packageCard(pkg, true)));
+}
+
+// Корзина изменилась: в последней подборке в чате выбранный пакет помечается «В корзине»
+function refreshChatPackages() {
+  const rows = chatMessages.querySelectorAll('.package-row');
+  const last = rows[rows.length - 1];
+  if (last) last.replaceChildren(...tripView.packages.map((pkg) => packageCard(pkg, true)));
+}
+
+// Подсказки под полем ввода: следующие шаги от агента, а до первого ответа — примеры
+function setSuggestions(items) {
+  if (!items?.length) {
+    suggestionsBox.replaceChildren(...defaultSuggestions);
+    return;
+  }
+  suggestionsBox.replaceChildren(...items.map((text) => {
+    const chip = el('button', 'chip', text);
+    chip.type = 'button';
+    chip.dataset.prompt = text;
+    chip.disabled = chatBusy || !activeChatId;
+    chip.addEventListener('click', () => sendMessage(text));
+    return chip;
+  }));
 }
 
 function variantsHint(reply, count) {
@@ -498,16 +736,27 @@ function handleEvent(reply, event) {
     reply.status.hidden = false;
     reply.setStatus(TOOL_STATUS[event.name] ?? 'Работаю…');
   } else if (event.type === 'block') {
-    if (event.block === 'hotels') {
+    if (event.block === 'packages') {
+      Object.assign(tripView, { packages: event.items, weather: event.weather, flex: event.flex, recommendation: null });
+      renderTrip();
+      showPackagesInChat(reply, event.items);
+    } else if (event.block === 'reply') {
+      tripView.recommendation = event.recommendation;
+      renderTrip();
+      markRecommended(reply);
+      setSuggestions(event.suggestions);
+    } else if (event.block === 'hotels') {
       tripView.hotels = event.items;
       renderTrip();
-      variantsHint(reply, event.items.length);
+      // пакеты уже показаны в чате: отдельная подсказка про отели не нужна
+      if (!reply.cards.querySelector('.package-row')) variantsHint(reply, event.items.length);
     } else if (event.block === 'flights') {
       tripView.flights = event.items;
       renderTrip();
     } else if (event.block === 'cart') {
-      tripView.cart = { items: event.items, total_rub: event.total_rub, issues: event.issues };
+      tripView.cart = { items: event.items, total_rub: event.total_rub, issues: event.issues, itinerary: event.itinerary };
       renderTrip();
+      refreshChatPackages();
       showCartInChat(reply, tripView.cart);
     } else if (event.block === 'order') {
       tripView.orders = [...tripView.orders.filter((order) => order.id !== event.order.id), event.order];

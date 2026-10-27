@@ -3,8 +3,8 @@
 Слои (от дешёвого к дорогому):
 1. InputGuardMiddleware: регулярные выражения из guard_patterns.json, LLM не вызывается.
 2. Лимиты числа вызовов модели и инструментов за один запрос.
-3. sanitize_hotel: данные из БД (названия, описания, отзывы) проверяются теми же паттернами,
-   потому что реальные отзывы и OSM-названия вводят люди, и это канал косвенной инъекции.
+3. sanitize_hotel: тексты отелей (названия, адреса, описания) проверяются теми же паттернами,
+   потому что данные OSM вводят люди, и это канал косвенной инъекции.
 Остальное (границы роли, «данные — не инструкции») держится на системном промпте.
 """
 
@@ -104,8 +104,8 @@ def default_guards() -> list[AgentMiddleware]:
     """Защитные middleware агента. Ставить первыми, до динамического промпта."""
     return [
         InputGuardMiddleware(),
-        ModelCallLimitMiddleware(run_limit=8, exit_behavior="end"),
-        ToolCallLimitMiddleware(run_limit=6, exit_behavior="continue"),
+        ModelCallLimitMiddleware(run_limit=10, exit_behavior="end"),
+        ToolCallLimitMiddleware(run_limit=8, exit_behavior="continue"),
     ]
 
 

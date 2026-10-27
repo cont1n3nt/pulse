@@ -3,6 +3,7 @@ import json
 import logging
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
@@ -10,7 +11,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.agent import get_order, get_state, pending_checkout, resume_checkout, stream_message
+from backend.agent import (forget_memory, get_memory, get_order, hotel_photo, resume_checkout, stream_message,
+                           trip_view)
 from backend.auth import COOKIE_NAME, SESSION_AGE
 from backend.models import Chat, ChatMessage, User, utc_now
 
@@ -41,7 +43,15 @@ def check_origin(request: Request) -> None:
 
 
 def current_user_id(request: Request) -> str | None:
-    return request.app.state.auth.get_user_id(request.cookies.get(COOKIE_NAME))
+    user_id = request.app.state.auth.get_user_id(request.cookies.get(COOKIE_NAME))
+    if user_id is None:
+        return None
+    # подпись верна, но базу могли стереть: такой сессии больше нет
+    try:
+        with request.app.state.db() as db:
+            return user_id if db.get(User, user_id) is not None else None
+    except SQLAlchemyError as exc:
+        raise HTTPException(503, "База данных недоступна") from exc
 
 
 def require_user_id(request: Request) -> str:
@@ -73,22 +83,13 @@ def owned_chat(db, chat_id: str, user_id: str) -> Chat:
 def trip_data(chat_id: str) -> dict | None:
     """Состояние поездки для восстановления карточек после перезагрузки. ID чата = сессия агента."""
     try:
-        trip = get_state(chat_id)
-        confirm = pending_checkout(chat_id)
+        view = trip_view(chat_id)
     except Exception:
         # без ключа LLM или при сбое агента история чата всё равно открывается
         log.exception("Не удалось прочитать состояние поездки чата %s", chat_id)
         return None
-    orders = [order.model_dump(mode="json") for order_id in trip.orders if (order := get_order(order_id))]
-    return {
-        "stage": trip.stage,
-        "hotels": [hotel.model_dump(mode="json") for hotel in trip.hotels],
-        "flights": [flight.model_dump(mode="json") for flight in trip.flights],
-        "cart": {"items": [item.model_dump(mode="json") for item in trip.cart],
-                 "total_rub": trip.cart_total_rub, "issues": [issue.model_dump() for issue in trip.issues]},
-        "orders": orders,
-        "confirm": confirm,
-    }
+    view["orders"] = [order.model_dump(mode="json") for order_id in view["orders"] if (order := get_order(order_id))]
+    return view
 
 
 def save_reply(session_factory, chat_id: str, text: str) -> dict | None:
@@ -156,7 +157,8 @@ def me(request: Request) -> dict[str, str]:
 def chat(request: Request, payload: ChatRequest) -> StreamingResponse:
     """Сообщение пользователя сохраняется сразу, ответ агента приходит потоком SSE.
 
-    События: reasoning, tool, block (hotels/flights/cart/order), token, confirm, chat, error, done.
+    События: reasoning, tool, block (packages/hotels/flights/cart/order/reply), token, confirm, chat,
+    error, done.
     """
     check_origin(request)
     user_id = require_user_id(request)
@@ -179,7 +181,7 @@ def chat(request: Request, payload: ChatRequest) -> StreamingResponse:
     except SQLAlchemyError as exc:
         raise HTTPException(503, "База данных недоступна") from exc
     # ID чата служит сессией агента: у каждого чата своя поездка и своя корзина
-    return agent_stream(request, payload.session_id, stream_message(payload.session_id, text))
+    return agent_stream(request, payload.session_id, stream_message(payload.session_id, text, user_id))
 
 
 @router.post("/api/chats/{chat_id}/checkout")
@@ -192,7 +194,33 @@ def checkout(request: Request, chat_id: str, decision: CheckoutDecision) -> Stre
             owned_chat(db, chat_id, user_id)
     except SQLAlchemyError as exc:
         raise HTTPException(503, "База данных недоступна") from exc
-    return agent_stream(request, chat_id, resume_checkout(chat_id, decision.approved))
+    return agent_stream(request, chat_id, resume_checkout(chat_id, decision.approved, user_id))
+
+
+@router.get("/api/memory")
+def memory(request: Request) -> dict:
+    """Что агент помнит о пользователе между чатами."""
+    return get_memory(require_user_id(request))
+
+
+@router.delete("/api/memory", status_code=204)
+def forget(request: Request) -> Response:
+    check_origin(request)
+    forget_memory(require_user_id(request))
+    return Response(status_code=204)
+
+
+@router.get("/api/hotels/{hotel_id}/photo")
+def photo(request: Request, hotel_id: str) -> Response:
+    """Фото отеля: с сайта отеля или из Wikimedia Commons. 404 — фото нет, фронт покажет карту."""
+    require_user_id(request)
+    found = hotel_photo(hotel_id)
+    if found is None:
+        raise HTTPException(404, "Фото нет")
+    # заголовки — только ASCII, поэтому подпись и ссылка закодированы
+    headers = {"Cache-Control": "private, max-age=86400", "X-Photo-Source": found["source"],
+               "X-Photo-Credit": quote(found["credit"] or ""), "X-Photo-Page": quote(found["page"] or "")}
+    return FileResponse(found["path"], headers=headers)
 
 
 @router.get("/api/orders/{order_id}")

@@ -10,6 +10,7 @@
 Что берётся из OSM как есть: название, тип, адрес, координаты, звёзды, сайт, Wi-Fi.
 Что вычисляется из геометрии OSM: район, расстояние до моря, до аэропорта, первая линия,
 бассейн рядом с объектом, ближайшие пляж, канатная дорога, станция и достопримечательности.
+Дорога из аэропорта: маршрут по дорогам OSM через OSRM (без учёта пробок).
 Остальные удобства (дети, животные, парковка, завтрак, спа) в OSM почти не размечены: «нет данных».
 """
 
@@ -29,6 +30,8 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "backend" / "seed" / "sochi"
 CACHE_DIR = ROOT / "backend" / "data" / "osm_cache"  # сырые ответы, в git не попадают
 OVERPASS = "https://overpass-api.de/api/interpreter"
+OSRM = "https://router.project-osrm.org/table/v1/driving/"
+OSRM_BATCH = 80  # точек в одном запросе к публичному серверу
 HEADERS = {"User-Agent": "pulse-hackathon-seed/1.0 (one-off export)"}
 
 # внутригородские районы Сочи и федеральная территория Сириус: relation id в OSM
@@ -86,6 +89,35 @@ def overpass(name: str, query: str, refresh: bool) -> list[dict]:
     cache.write_text(resp.text, encoding="utf-8")
     time.sleep(3)  # вежливость к публичному серверу
     return resp.json()["elements"]
+
+
+def airport_routes(hotels: list[dict], refresh: bool) -> dict[str, dict]:
+    """Время и длина дороги от аэропорта до каждого отеля по графу дорог OSM (OSRM, без пробок)."""
+    cache = CACHE_DIR / "routes.json"
+    routes = {} if refresh or not cache.exists() else json.loads(cache.read_text(encoding="utf-8"))
+    todo = [h for h in hotels if h["id"] not in routes]
+    for i in range(0, len(todo), OSRM_BATCH):
+        batch = todo[i:i + OSRM_BATCH]
+        coords = ";".join(f"{lon},{lat}" for lat, lon in [AIRPORT] + [(h["lat"], h["lon"]) for h in batch])
+        for attempt in range(4):
+            try:
+                resp = requests.get(OSRM + coords, params={"sources": 0, "annotations": "duration,distance"},
+                                    headers=HEADERS, timeout=120)
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except requests.RequestException as exc:
+                if attempt == 3:
+                    raise
+                print(f"  OSRM: {exc}, повтор", file=sys.stderr)
+                time.sleep(10 * (attempt + 1))
+        for h, sec, meters in zip(batch, data["durations"][0][1:], data["distances"][0][1:]):
+            if sec is not None and meters is not None:
+                routes[h["id"]] = {"min": round(sec / 60), "km": round(meters / 1000, 1)}
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(routes), encoding="utf-8")
+        time.sleep(1)
+    return routes
 
 
 def bbox() -> str:
@@ -375,11 +407,19 @@ def main() -> None:
             "tips": [],
             "photos": [],
             "website": website_of(tags),
+            "phone": tags.get("phone") or tags.get("contact:phone"),
             "osm_url": f"https://www.openstreetmap.org/{el_type}/{el_id}",
             "price_class": price_class(tags, kind, stars),
         }
         hotels.append(hotel)
         by_name[norm].append(hotel)
+
+    print("Дорога из аэропорта (OSRM)…")
+    routes = airport_routes(hotels, refresh)
+    for h in hotels:
+        route = routes.get(h["id"])
+        h["airport_drive_min"] = route["min"] if route else None
+        h["airport_drive_km"] = route["km"] if route else None
 
     hotels.sort(key=lambda h: (h["district"], h["name"]))
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -389,13 +429,14 @@ def main() -> None:
     for h in hotels:
         counts[h["district"]] += 1
     meta = {
-        "source": "OpenStreetMap, Overpass API",
+        "source": "OpenStreetMap, Overpass API; маршруты — OSRM по дорогам OSM",
         "license": "ODbL 1.0, © участники OpenStreetMap — https://www.openstreetmap.org/copyright",
         "exported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "hotels": len(hotels),
         "by_district": dict(sorted(counts.items())),
-        "real_fields": ["name", "kind", "stars", "address", "lat", "lon", "website", "amenities.wifi"],
-        "computed_fields": ["district", "distance_to_sea_m", "distance_to_airport_km", "amenities.beach_line",
+        "real_fields": ["name", "kind", "stars", "address", "lat", "lon", "website", "phone", "amenities.wifi"],
+        "computed_fields": ["district", "distance_to_sea_m", "distance_to_airport_km", "airport_drive_min",
+                            "airport_drive_km", "amenities.beach_line",
                             "amenities.pool", "pros", "cons"],
         "demo_fields": ["price", "availability", "meal", "free_cancellation"],
         "mountain_cluster_rule": f"Адлер, широта ≥ {MOUNTAIN_CLUSTER['lat_min']}, долгота ≥ {MOUNTAIN_CLUSTER['lon_min']}",
@@ -410,7 +451,7 @@ def main() -> None:
     print("  адрес", share(lambda h: h["address"]), "· сайт", share(lambda h: h["website"]),
           "· звёзды", share(lambda h: h["stars"]), "· Wi-Fi известен", share(lambda h: h["amenities"]["wifi"] is not None),
           "· бассейн", share(lambda h: h["amenities"]["pool"]), "· первая линия", share(lambda h: h["amenities"]["beach_line"]),
-          "· есть плюсы", share(lambda h: h["pros"]))
+          "· есть плюсы", share(lambda h: h["pros"]), "· маршрут из аэропорта", share(lambda h: h["airport_drive_min"]))
 
 
 if __name__ == "__main__":
