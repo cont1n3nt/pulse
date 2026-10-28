@@ -18,6 +18,7 @@ from backend.agent.contracts import AgentResponse, TripState
 class Run:
     responses: list[AgentResponse] = field(default_factory=list)
     memory: dict = field(default_factory=dict)  # профиль пользователя после прогона
+    seconds: list[float] = field(default_factory=list)  # время каждого хода
 
     @property
     def last(self) -> AgentResponse:
@@ -160,6 +161,14 @@ def structured_reply(run: Run) -> bool:
     return bool(replies) and all(len(r.get("suggestions") or []) >= 1 for r in replies)
 
 
+def by_train(run: Run) -> bool:
+    return bool(run.state.packages) and all(p.outbound and p.outbound.mode == "train" for p in run.state.packages)
+
+
+def district_chosen(*allowed):
+    return lambda run: run.state.requirements.district in allowed
+
+
 def memory_fact(word):
     return lambda run: any(word in f.lower() for f in run.memory.get("facts", []))
 
@@ -216,6 +225,16 @@ SCENARIOS = [
              [("ответ без ошибок", answered), ("город вылета из памяти", requirement("origin_code", "KZN")),
               ("собрана поездка", called("plan_trip"))],
              setup=["Летим из Казани в Сочи с 10 по 14 ноября, двое взрослых"]),
+    Scenario("train", "Поездом вместо самолёта",
+             ["Из Москвы в Сочи поездом, самолёты не любим. С 20 по 27 ноября, двое взрослых, до 120 тысяч"],
+             [("ответ без ошибок", answered), ("собрана поездка", called("plan_trip")),
+              ("транспорт — поезд", requirement("transport", "train")), ("пакеты с поездами", by_train),
+              ("чистый текст", clean_text)]),
+    Scenario("inspire", "Не знают, какой район: агент выбирает сам",
+             ["С 10 по 15 ноября вдвоём из Москвы, хотим тихо и у моря, но не знаем, какой район Сочи выбрать"],
+             [("ответ без ошибок", answered), ("собрана поездка", called("plan_trip")),
+              ("тихий район у моря", district_chosen("Хоста", "Лазаревское", "Сириус")),
+              ("чистый текст", clean_text)]),
     Scenario("remember", "Явная просьба запомнить",
              ["Запомни, пожалуйста: мы всегда берём отели с завтраком"],
              [("ответ без ошибок", answered), ("вызван remember", called("remember")),

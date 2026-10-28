@@ -1,4 +1,4 @@
-"""Инструменты полной поездки: пакеты «перелёт + трансфер + отель», выбор пакета, праздники."""
+"""Инструменты полной поездки: пакеты «перелёт или поезд + трансфер + отель», выбор пакета, праздники."""
 
 import logging
 from datetime import date
@@ -7,7 +7,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
 from .. import memory, packages
-from ..adapters import aviasales, holidays, weather
+from ..adapters import aviasales, holidays, trains, weather
 from ..adapters import hotels as hotels_db
 from ..contracts import Requirements
 from ..reference import city_name, find_city
@@ -21,6 +21,7 @@ DEFAULT_ORIGIN = ("MOW", "Москва")
 DEFAULT_ADULTS = 2
 CANDIDATES = 600  # с запасом: Эконом и Комфорт ищутся по всей выдаче, а не около ориентира цены
 TRANSFER_ESTIMATE_RUB = 3000  # для лимита за ночь, пока трансфер конкретного отеля неизвестен
+TRANSPORT = {"plane": "plane", "самолёт": "plane", "самолет": "plane", "train": "train", "поезд": "train"}
 
 
 def _origin(runtime: ToolRuntime, given: str | None, req: Requirements) -> tuple[str | None, str | None, str]:
@@ -45,9 +46,10 @@ def _origin(runtime: ToolRuntime, given: str | None, req: Requirements) -> tuple
 def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | None = None,
               check_out: str | None = None, adults: int | None = None, children_ages: list[int] | None = None,
               budget_rub: int | None = None, district: str | None = None, near_sea: bool | None = None,
-              assumption: str | None = None):
-    """Собрать поездку целиком: 2–3 готовых пакета (перелёт туда и обратно + трансфер + отель)
+              transport: str | None = None, assumption: str | None = None):
+    """Собрать поездку целиком: 2–3 готовых пакета (перелёт или поезд туда и обратно + трансфер + отель)
     с одной итоговой суммой, сравнением в рублях, проверкой состыковок и погодой.
+    Не для тех, кому дорога не нужна (уже в Сочи, едет на машине, «только отель»): им — search_hotels.
 
     Основной инструмент подбора. Новые или изменённые условия передавай прямо сюда одним вызовом:
     они сохранятся, а не названные возьмутся из сохранённых. Не вызывай его в одном шаге
@@ -64,6 +66,8 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
         budget_rub: бюджет на всю поездку вместе с перелётами, в рублях.
         district: район: Адлер, Центр, Сириус, Красная Поляна, Хоста, Лазаревское; «любой» — снять.
         near_sea: нужен ли отель до 500 м от моря.
+        transport: "train" — поездом («поездом», «не люблю летать», «боюсь самолётов»),
+            "plane" — снова самолётом. Не передавай, если пользователь не говорил о транспорте.
         assumption: допущение, которое ты сделал сам («считаю 7 ночей»).
     """
     trip = current_trip(runtime)
@@ -73,6 +77,11 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
             children_ages=children_ages, budget_rub=budget_rub, district=district, near_sea=near_sea)
     except BadInput as exc:
         return result(runtime, "plan_trip", str(exc), [])
+    if transport is not None:
+        mode = TRANSPORT.get(transport.strip().lower())
+        if mode is None:
+            return result(runtime, "plan_trip", "transport: train или plane.", [])
+        given["transport"] = mode
     req = Requirements.model_validate(trip.requirements.model_dump() | given)
     if not (req.check_in and req.check_out):
         return result(runtime, "plan_trip",
@@ -97,10 +106,14 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
     nights = (req.check_out - req.check_in).days
     guests = max(req.guests, 1)
 
+    rail = trains.route(code) if code != SOCHI else None
+    by_train = req.transport == "train" and rail is not None
+    if req.transport == "train" and rail is None and code != SOCHI:
+        notes.append(f"Поездов из {city_name(code)} в Сочи у меня нет: собрал с перелётом, скажи об этом.")
     outbound = back = None
-    if code != SOCHI:
+    if code != SOCHI and not by_train:
         try:
-            outbound = aviasales.cheapest_on(code, SOCHI, req.check_in)
+            outbound = aviasales.cheapest_on(code, SOCHI, req.check_in, arrive_by=req.check_in)
             back = aviasales.cheapest_on(SOCHI, code, req.check_out)
         except aviasales.SourceUnavailable:
             notes.append("Сервис цен на перелёты недоступен: пакеты собраны без перелётов, скажи об этом.")
@@ -109,6 +122,11 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
                 notes.append(f"На {req.check_in:%d.%m} в кэше Aviasales нет билета туда: пакет без него.")
             if back is None:
                 notes.append(f"На {req.check_out:%d.%m} в кэше Aviasales нет билета обратно: пакет без него.")
+        if outbound is None and back is None and rail:
+            by_train = True
+            notes.append("Перелётов на эти даты нет: собрал поездку поездом, скажи об этом.")
+    if by_train:
+        outbound, back = trains.legs(code, req.check_in, req.check_out)
 
     flights_rub = packages.flights_cost(outbound, back, guests) or 0
     limit = None
@@ -129,10 +147,12 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
                 "ослабить: другой район, больше бюджет, другие даты.").strip()
         return result(runtime, "plan_trip", text, ops)
 
-    built = packages.build(req, candidates, outbound, back)
+    built = packages.build(req, candidates, outbound, back, rail_from=code if by_train else None)
     optimum = next(p for p in built if p.id == "optimum")
+    if by_train:
+        outbound, back = optimum.outbound, optimum.back
     flex = None
-    if outbound and back:
+    if outbound and back and not by_train:
         try:
             flex = packages.flex_dates(
                 req, optimum.hotel,
@@ -153,10 +173,12 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
     ops += [{"op": "hotels", "items": [h.model_dump(mode="json") for h in shown]},
             {"op": "packages", "items": items}, {"op": "weather", "data": forecast}]
 
-    lines = [f"Пакеты на {req.check_in:%d.%m}–{req.check_out:%d.%m} ({nights} н.), гостей {guests}, вылет из {code}:"]
+    lines = [f"Пакеты на {req.check_in:%d.%m}–{req.check_out:%d.%m} ({nights} н.), гостей {guests}, {'поездом' if by_train else 'вылет'} из {code}:"]
     lines.append(packages.describe(built))
     if req.budget_rub:
         lines.append(f"Бюджет {_rub(req.budget_rub)}.")
+    if rail and not by_train and optimum.flights_rub:
+        lines.append(_train_option(code, req, optimum, guests))
     if flex:
         lines.append(f"Гибкие даты: если сдвинуть поездку на {flex['shift_days']:+d} дн. "
                      f"({date.fromisoformat(flex['check_in']):%d.%m}–{date.fromisoformat(flex['check_out']):%d.%m}), "
@@ -165,16 +187,44 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
     lines += notes
     if assumptions:
         lines.append("Допущения, назови их: " + "; ".join(assumptions) + ".")
-    lines.append("Перелёты — реальные недавние цены из кэша Aviasales (за одного, багаж не гарантирован); "
-                 "отели — OpenStreetMap; цены отелей и такси — демо. Рекомендуй один пакет и объясни почему.")
+    if by_train:
+        lines.append(_train_source(optimum.outbound) + " Отели — OpenStreetMap; цены отелей и такси — демо.")
+    else:
+        lines.append("Перелёты — реальные недавние цены из кэша Aviasales (за одного, багаж не гарантирован); "
+                     "отели — OpenStreetMap; цены отелей и такси — демо.")
+    lines.append("Рекомендуй один пакет и объясни почему.")
     lines.append("Ответ — до 100 слов: что собрал, что советуешь и почему, одна главная разница, гибкие даты "
                  "или погода одной фразой, вопрос. Подробности пользователь видит в карточках.")
     return result(runtime, "plan_trip", "\n".join(lines), ops)
 
 
+def _train_source(leg) -> str:
+    """Что сказать пользователю об источнике поездов: настоящее расписание или демо."""
+    if not trains.is_live(leg):
+        return ("Поезда — демо: время в пути ориентировочное для направления, расписание и цена купе "
+                "условные, так и скажи.")
+    price = ("цена купе — демо, в расписании её нет, так и скажи" if leg.price_is_demo
+             else "цена — из Яндекс Расписаний, может отличаться от кассы")
+    return (f"Поезда — настоящее расписание Яндекс Расписаний (номер, отправление, прибытие); {price}. "
+            "Места не проверены: скажи проверить и купить на rzd.ru. Источник называй: Яндекс Расписания.")
+
+
+def _train_option(code: str, req: Requirements, optimum, guests: int) -> str:
+    """Тот же Оптимум, но поездом: сколько стоит и сколько дольше ехать."""
+    outbound, back, transfer = trains.for_hotel(code, req.check_in, req.check_out, optimum.hotel, guests)
+    by_train = (outbound.price_rub + back.price_rub) * guests + transfer.price_rub
+    by_plane = optimum.flights_rub + (optimum.transfer.price_rub if optimum.transfer else 0)
+    diff = by_train - by_plane
+    hours = round(outbound.duration_min / 60)
+    money = f"дешевле на {_rub(-diff)}" if diff < 0 else f"дороже на {_rub(diff)}"
+    return (f"Поездом вместо самолёта ({trains.source_note(outbound)}): около {hours} ч в пути в одну сторону, Оптимум выйдет "
+            f"{money}. Упомяни одной фразой, только если поезд дешевле и пользователь экономит, "
+            f"или если он не хочет лететь; поездом — plan_trip(transport=\"train\").")
+
+
 @tool
 def choose_package(package_id: str, runtime: ToolRuntime):
-    """Положить в корзину весь пакет: отель, перелёты туда и обратно и трансфер.
+    """Положить в корзину весь пакет: отель, перелёты (или поезда) туда и обратно и трансфер.
 
     Вызывай, когда пользователь выбрал пакет («беру Оптимум», «давай первый пакет»).
 
@@ -210,7 +260,9 @@ def holiday_dates() -> str:
     source = ("производственный календарь isdayoff.ru, с переносами" if official
               else "без учёта переносов: календарь недоступен, предупреди об этом")
     return ("Длинные выходные (" + source + "):\n" + "\n".join(lines)
-            + "\nЗаезд — в первый выходной, выезд — в последний; можно вылететь вечером накануне.")
+            + "\nЗаезд — в первый выходной, выезд — в последний; можно вылететь вечером накануне."
+            + "\nЕсли под запрос подходит несколько периодов (майские — два), не переспрашивай: сразу "
+              "собери поездку на первый, назови это допущением и одной фразой предложи второй.")
 
 
 TOOLS = [plan_trip, choose_package, holiday_dates]

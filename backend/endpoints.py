@@ -8,7 +8,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.agent import (forget_memory, get_memory, get_order, hotel_photo, resume_checkout, stream_message,
@@ -143,6 +143,17 @@ def set_cookie(request: Request, response: Response, user_id: str) -> None:
 @router.get("/", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse(FRONTEND / "index.html")
+
+
+@router.get("/health")
+def health(request: Request) -> dict[str, str]:
+    """Для healthcheck: сервер отвечает и база открывается."""
+    try:
+        with request.app.state.db() as db:
+            db.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        raise HTTPException(503, "База недоступна")
+    return {"status": "ok"}
 
 
 @router.get("/api/auth/me")

@@ -30,14 +30,14 @@
       <div class="section-head">
         <div class="section-title">
           <h2 id="chat-title">Загрузка чатов…</h2>
-          <p class="muted">Перелёт, трансфер и отель — одной поездкой</p>
+          <p class="muted">Дорога, трансфер и отель — одной поездкой</p>
         </div>
         <button id="trip-toggle" class="trip-toggle" type="button" aria-controls="trip-panel" aria-expanded="false">
           Поездка <span id="trip-badge" class="trip-badge" hidden></span>
         </button>
       </div>
       <div id="chat-messages" class="chat-preview" role="log" aria-label="Сообщения чата" aria-live="polite">
-        <p id="chat-empty" class="chat-empty">Опишите поездку своими словами: откуда, когда, с кем и на какой бюджет. Я соберу перелёт, трансфер и отель и проверю, что всё стыкуется. Например: «Из Москвы в Сочи на майские, двое с ребёнком, до 120 тысяч».</p>
+        <p id="chat-empty" class="chat-empty">Опишите поездку своими словами: откуда, когда, с кем и на какой бюджет. Я соберу дорогу (самолёт или поезд), трансфер и отель и проверю, что всё стыкуется. Например: «Из Москвы в Сочи на майские, двое с ребёнком, до 120 тысяч».</p>
       </div>
       <div id="suggestions" class="suggestions" aria-label="Подсказки">
         <button class="chip" type="button" data-prompt="Из Москвы в Сочи на майские, двое с ребёнком 6 лет, до 120 тысяч">На майские с ребёнком</button>
@@ -50,7 +50,7 @@
         <button id="chat-send" class="send" type="submit" aria-label="Отправить сообщение" disabled>↑</button>
       </form>
       <p id="chat-error" class="chat-error" role="status" hidden></p>
-      <p class="fineprint assistant-note">ИИ помогает выбрать, решение за вами. Отели — OpenStreetMap, перелёты — цены Aviasales, цены отелей и такси — демо.</p>
+      <p class="fineprint assistant-note">ИИ помогает выбрать, решение за вами. Отели — OpenStreetMap, перелёты — цены Aviasales, поезда — Яндекс Расписания или демо, цены отелей и такси — демо.</p>
     </main>
 
     <aside id="trip-panel" class="trip-panel" aria-labelledby="trip-title">
@@ -82,10 +82,10 @@
           <div id="hotel-list" class="hotel-list"></div>
         </section>
         <section id="trip-flights-section" class="trip-section" hidden>
-          <h3>Перелёты</h3>
+          <h3>Перелёты и поезда</h3>
           <div id="flight-list" class="flight-list"></div>
         </section>
-        <p class="attribution">Отели, расстояния и маршруты: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">участники OpenStreetMap</a>, ODbL. Перелёты — кэш цен Aviasales. Погода — <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>. Фото — сайты отелей и Wikimedia Commons. Цены отелей и такси, наличие, питание и отмена — демо.</p>
+        <p class="attribution">Отели, расстояния и маршруты: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">участники OpenStreetMap</a>, ODbL. Перелёты — кэш цен Aviasales. Расписание поездов — <a href="https://rasp.yandex.ru/" target="_blank" rel="noopener noreferrer">Яндекс Расписания</a> (без ключа — демо-расписание). Погода — <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>. Фото — сайты отелей и Wikimedia Commons. Цены отелей и такси, наличие, питание и отмена — демо.</p>
       </div>
     </aside>
   </div>

@@ -18,6 +18,7 @@ reducer графа применяет операции по очереди. По
 from datetime import date, datetime, timedelta
 
 from .adapters import hotels as hotels_db
+from .adapters import trains
 from .contracts import CartItem, FlightOption, HotelOption, Issue, Package, Requirements, TransferOption, TripState
 
 AIRPORT_BUFFER_MIN = 90  # приехать в аэропорт до вылета
@@ -72,9 +73,10 @@ def apply(trip: TripState, op: dict) -> TripState:
 
 
 def _direction(flight: FlightOption) -> str | None:
-    if flight.to_airport in hotels_db.AIRPORTS:
+    arrivals = trains.STATIONS if flight.mode == "train" else hotels_db.AIRPORTS
+    if flight.to_airport in arrivals:
         return "outbound"
-    if flight.from_airport in hotels_db.AIRPORTS:
+    if flight.from_airport in arrivals:
         return "return"
     return None
 
@@ -85,7 +87,13 @@ def _follow_hotel(trip: TripState, hotel: HotelOption) -> None:
     if old is None or old.snapshot.get("hotel_id") == hotel.id:
         return
     trip.cart = [c for c in trip.cart if c.kind != "transfer"]
-    if fresh := hotels_db.transfer(hotel, max(trip.requirements.guests, 1)):
+    guests = max(trip.requirements.guests, 1)
+    if old.snapshot.get("start", "аэропорт") != "аэропорт":
+        station, km = trains.nearest_station(hotel)
+        fresh = trains.station_transfer(hotel, station, km, guests)
+    else:
+        fresh = hotels_db.transfer(hotel, guests)
+    if fresh:
         trip.cart.append(transfer_item(fresh))
 
 
@@ -145,7 +153,7 @@ def transfer_item(transfer: TransferOption) -> CartItem:
     car = "минивэн" if transfer.car == "minivan" else "такси"
     return CartItem(
         kind="transfer", option_id=f"transfer-{transfer.hotel_id}", price_rub=transfer.price_rub,
-        title=f"Трансфер аэропорт ⇄ отель, {car}, {transfer.trips} поездки по ~{transfer.minutes} мин",
+        title=f"Трансфер {transfer.start} ⇄ отель, {car}, {transfer.trips} поездки по ~{transfer.minutes} мин",
         snapshot=transfer.model_dump(mode="json"),
     )
 
@@ -184,16 +192,19 @@ def validate(trip: TripState) -> list[Issue]:
     else:
         _check_hotel(hotel, r, add)
 
+    transfer = next((c for c in trip.cart if c.kind == "transfer"), None)
+    road = transfer.snapshot.get("minutes") if transfer else None
     if hotel and outbound:
-        _check_arrival(hotel, outbound, add)
+        _check_arrival(hotel, outbound, road, add)
     if hotel and back:
-        _check_departure(hotel, back, add)
+        _check_departure(hotel, back, road, add)
     if outbound and back and back.depart_at <= outbound.arrive_at:
         add("flights_order", "blocker", "Обратный рейс вылетает раньше, чем прилетает рейс туда.")
-    transfer = next((c for c in trip.cart if c.kind == "transfer"), None)
     if transfer and transfer.snapshot.get("minutes", 0) >= LONG_TRANSFER_MIN:
+        start = transfer.snapshot.get("start", "аэропорт")
+        origin = "аэропорта" if start == "аэропорт" else start.replace("вокзал", "вокзала")
         add("long_transfer", "warning" if r.children_ages else "info",
-            f"Дорога из аэропорта до отеля около {transfer.snapshot['minutes']} мин в одну сторону.")
+            f"Дорога от {origin} до отеля около {transfer.snapshot['minutes']} мин в одну сторону.")
     for item in trip.cart:
         if item.kind == "flight" and item.price_rub is None:
             add("flight_price_unknown", "info", f"Цена рейса {item.title} неизвестна и в итог не вошла.")
@@ -237,45 +248,52 @@ def _check_hotel(hotel: HotelOption, r: Requirements, add) -> None:
             f"Гостей {r.guests}: вместимость номера в демо-данных не указана, тип номера уточняется при бронировании.")
 
 
-def _check_arrival(hotel: HotelOption, flight: FlightOption, add) -> None:
+def _check_arrival(hotel: HotelOption, flight: FlightOption, road: int | None, add) -> None:
     arrive = _local(flight.arrive_at)
+    train = flight.mode == "train"
+    word = "Прибытие поезда" if train else "Прилёт"
     if arrive.date() > hotel.check_in:
         add("late_arrival", "blocker",
-            f"Прилёт {arrive:%d.%m в %H:%M} — позже даты заезда {hotel.check_in:%d.%m}: "
+            f"{word} {arrive:%d.%m в %H:%M} — позже даты заезда {hotel.check_in:%d.%m}: "
             f"оплаченная ночь пропадёт.")
         return
     if arrive.date() < hotel.check_in:
         add("early_arrival", "blocker",
-            f"Прилёт {arrive:%d.%m}, а заезд только {hotel.check_in:%d.%m}: на ночь до заезда нет жилья.")
+            f"{word} {arrive:%d.%m}, а заезд только {hotel.check_in:%d.%m}: на ночь до заезда нет жилья.")
         return
-    transfer = hotels_db.transfer_minutes(hotel)
+    transfer = road if road is not None else hotels_db.transfer_minutes(hotel)
     at_hotel = arrive + timedelta(minutes=transfer or 0)
     check_in = datetime.combine(hotel.check_in, hotels_db.CHECK_IN_TIME)
     wait = check_in - at_hotel
     if wait >= timedelta(hours=EARLY_CHECKIN_WAIT_H):
-        road = f", дорога из аэропорта около {transfer} мин" if transfer else ""
+        place = "с вокзала" if train else "из аэропорта"
+        road_text = f", дорога {place} около {transfer} мин" if transfer else ""
         add("early_checkin", "warning",
-            f"Прилёт в {arrive:%H:%M}{road}, в отеле около {at_hotel:%H:%M}, а заселение с "
+            f"{word} в {arrive:%H:%M}{road_text}, в отеле около {at_hotel:%H:%M}, а заселение с "
             f"{hotels_db.CHECK_IN_TIME:%H:%M}: ждать около {_hours(wait)}. "
             f"Можно запросить ранний заезд или оставить вещи на ресепшене.")
 
 
-def _check_departure(hotel: HotelOption, flight: FlightOption, add) -> None:
+def _check_departure(hotel: HotelOption, flight: FlightOption, road: int | None, add) -> None:
     depart = _local(flight.depart_at)
+    train = flight.mode == "train"
+    word = "Обратный поезд" if train else "Обратный вылет"
     if depart.date() > hotel.check_out:
         add("late_departure", "blocker",
-            f"Обратный вылет {depart:%d.%m}, а выезд из отеля {hotel.check_out:%d.%m}: на ночь перед вылетом нет жилья.")
+            f"{word} {depart:%d.%m}, а выезд из отеля {hotel.check_out:%d.%m}: на ночь перед отъездом нет жилья.")
         return
     if depart.date() < hotel.check_out:
         add("unused_night", "warning",
-            f"Вылет {depart:%d.%m}, а отель оплачен до {hotel.check_out:%d.%m}: последняя ночь не используется.")
+            f"{word} {depart:%d.%m}, а отель оплачен до {hotel.check_out:%d.%m}: последняя ночь не используется.")
         return
-    transfer = hotels_db.transfer_minutes(hotel) or 0
-    leave = depart - timedelta(minutes=transfer + AIRPORT_BUFFER_MIN)
+    transfer = road if road is not None else (hotels_db.transfer_minutes(hotel) or 0)
+    buffer = trains.BOARDING_BUFFER_MIN if train else AIRPORT_BUFFER_MIN
+    leave = depart - timedelta(minutes=transfer + buffer)
     check_out = datetime.combine(hotel.check_out, hotels_db.CHECK_OUT_TIME)
     if leave - check_out >= timedelta(hours=LATE_CHECKOUT_WAIT_H):
+        place = "на вокзал" if train else "в аэропорт"
         add("late_checkout", "info",
-            f"Выезд из отеля в {hotels_db.CHECK_OUT_TIME:%H:%M}, а ехать в аэропорт около {leave:%H:%M}: "
+            f"Выезд из отеля в {hotels_db.CHECK_OUT_TIME:%H:%M}, а ехать {place} около {leave:%H:%M}: "
             f"можно запросить поздний выезд или оставить багаж.")
 
 
@@ -313,8 +331,7 @@ def itinerary(trip: TripState) -> list[dict]:
     steps = []
     if outbound:
         dep, arr = _local(outbound.depart_at), _local(outbound.arrive_at)
-        steps.append({"kind": "flight", "at": dep.isoformat(), "title": f"Вылет {outbound.from_airport} → {outbound.to_airport}",
-                      "detail": f"{outbound.carrier_name} {outbound.number}, прилёт в {arr:%H:%M}", "issues": []})
+        steps.append(_leg_step(outbound, dep, arr))
         if minutes:
             steps.append({"kind": "transfer", "at": arr.isoformat(), "title": "Трансфер в отель",
                           "detail": f"около {minutes} мин", "issues": []})
@@ -337,10 +354,19 @@ def itinerary(trip: TripState) -> list[dict]:
                   "detail": f"до {hotels_db.CHECK_OUT_TIME:%H:%M}", "issues": issues(DEPARTURE_ISSUES)})
     if back:
         dep, arr = _local(back.depart_at), _local(back.arrive_at)
-        steps.append({"kind": "flight", "at": dep.isoformat(), "title": f"Вылет {back.from_airport} → {back.to_airport}",
-                      "detail": f"{back.carrier_name} {back.number}, прилёт в {arr:%H:%M}", "issues": []})
+        steps.append(_leg_step(back, dep, arr))
     steps.sort(key=lambda s: s["at"])
     return steps
+
+
+def _leg_step(leg: FlightOption, dep: datetime, arr: datetime) -> dict:
+    if leg.mode == "train":
+        return {"kind": "train", "at": dep.isoformat(), "title": f"Поезд {leg.from_airport} → {leg.to_airport}",
+                "detail": f"{leg.number}, в пути {_hours(arr - dep)}, прибытие {arr:%d.%m в %H:%M} "
+                          f"({trains.source_note(leg)})",
+                "issues": []}
+    return {"kind": "flight", "at": dep.isoformat(), "title": f"Вылет {leg.from_airport} → {leg.to_airport}",
+            "detail": f"{leg.carrier_name} {leg.number}, прилёт в {arr:%H:%M}", "issues": []}
 
 
 # --- тексты для модели ----------------------------------------------------------------------
@@ -348,7 +374,7 @@ def itinerary(trip: TripState) -> list[dict]:
 REQUIREMENT_LABELS = {
     "check_in": "заезд", "check_out": "выезд", "adults": "взрослых", "children_ages": "дети",
     "budget_rub": "бюджет на поездку", "district": "район", "must_have": "обязательные удобства",
-    "near_sea": "близко к морю", "origin_code": "город вылета", "notes": "пожелания",
+    "near_sea": "близко к морю", "origin_code": "город вылета", "transport": "транспорт", "notes": "пожелания",
 }
 
 
@@ -409,7 +435,8 @@ def summary(trip: TripState) -> str:
         f"Этап: {trip.stage}, версия {trip.version}.",
         f"Даты: {dates}. Гости: {guests}. Бюджет: {_rub(r.budget_rub) if r.budget_rub else 'не указан'}.",
         f"Район: {r.district or 'любой'}. Удобства: {', '.join(r.must_have) or 'нет'}. "
-        f"Близко к морю: {'да' if r.near_sea else 'не важно'}. Город вылета: {r.origin_code or 'не указан'}.",
+        f"Близко к морю: {'да' if r.near_sea else 'не важно'}. Город вылета: {r.origin_code or 'не указан'}. "
+        f"Транспорт: {'поезд' if r.transport == 'train' else 'самолёт'}.",
     ]
     if r.notes:
         lines.append(f"Пожелания: {'; '.join(r.notes)}.")

@@ -52,6 +52,8 @@ def learn_requirements(store: BaseStore | None, user_id: str | None, req: Requir
     likes = set(profile.get("likes", []))
     if req.near_sea:
         likes.add("ближе к морю")
+    if req.transport == "train":
+        likes.add("ездит поездом")
     likes |= {f"удобство: {code}" for code in req.must_have}
     if req.district:
         likes.add(f"район: {req.district}")

@@ -326,9 +326,17 @@ function photoBox(hotel) {
 const localTime = (iso) => iso.slice(11, 16);
 const localDay = (iso) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 
+function trainSource(train) {
+  if (train.source !== 'yandex_rasp') return 'купе, демо';
+  return `${train.number}, Яндекс Расписания${train.price_is_demo ? ', цена купе — демо' : ''}`;
+}
+
 function flightLine(flight, label) {
   if (!flight) return null;
   // время рейса — местное, как в билете: берём из строки, не пересчитывая в пояс браузера
+  if (flight.mode === 'train') {
+    return el('p', 'pkg-flight', `${label}: поезд ${flight.from_airport} → ${flight.to_airport}, ${localDay(flight.depart_at)} ${localTime(flight.depart_at)} → ${localDay(flight.arrive_at)} ${localTime(flight.arrive_at)} · ${trainSource(flight)}`);
+  }
   return el('p', 'pkg-flight', `${label}: ${localDay(flight.depart_at)} ${localTime(flight.depart_at)} → ${localTime(flight.arrive_at)} · ${flight.carrier_name}`);
 }
 
@@ -343,7 +351,10 @@ function packageCard(pkg, compact = false) {
 
   if (!compact) {
     for (const line of [flightLine(pkg.outbound, 'Туда'), flightLine(pkg.back, 'Обратно')]) if (line) card.append(line);
-    if (pkg.transfer) card.append(el('p', 'pkg-flight', `Такси из аэропорта ~${pkg.transfer.minutes} мин · ${rub(pkg.transfer.price_rub)} туда-обратно`));
+    if (pkg.transfer) {
+      const start = pkg.transfer.start && pkg.transfer.start !== 'аэропорт' ? `от ${pkg.transfer.start.replace('вокзал', 'вокзала')}` : 'из аэропорта';
+      card.append(el('p', 'pkg-flight', `Такси ${start} ~${pkg.transfer.minutes} мин · ${rub(pkg.transfer.price_rub)} туда-обратно`));
+    }
   }
   for (const text of pkg.tradeoffs) card.append(el('p', 'tradeoff', text));
   const problems = (pkg.issues ?? []).filter((issue) => issue.severity !== 'info');
@@ -392,7 +403,7 @@ function flexContent(flex) {
   return [button];
 }
 
-const STEP_ICONS = { flight: '✈', transfer: '→', checkin: '⌂', day: '·', checkout: '↗' };
+const STEP_ICONS = { flight: '✈', train: '🚆', transfer: '→', checkin: '⌂', day: '·', checkout: '↗' };
 
 function timeline(steps) {
   const list = el('ol', 'timeline');
@@ -515,7 +526,8 @@ function renderTrip() {
   const cartIds = new Set((cart?.items ?? []).map((item) => item.option_id));
 
   packageList.replaceChildren(...packages.map((pkg) => packageCard(pkg)));
-  packageNote.textContent = packages.length ? 'перелёт + трансфер + отель' : '';
+  const byTrain = packages.some((pkg) => pkg.outbound?.mode === 'train');
+  packageNote.textContent = packages.length ? `${byTrain ? 'поезд' : 'перелёт'} + трансфер + отель` : '';
   weatherBox.replaceChildren(...(weather ? weatherContent(weather) : []));
   weatherBox.hidden = !weather || !packages.length;
   flexHint.replaceChildren(...flexContent(flex));
