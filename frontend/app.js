@@ -53,8 +53,14 @@ const sections = {
 let activeUserId = null;
 let activeChatId = null;
 let chats = [];
+// короткие запросы (загрузка, переключение, создание и удаление чата) блокируют интерфейс целиком
 let chatBusy = true;
-let activeStream = null;
+// ходы агента, которые ещё идут, по id чата: пока агент отвечает, можно уйти в другой чат
+const streams = new Map();
+// растёт при каждой перерисовке чата: ход понимает, что его карточки уже не на экране
+let chatView = 0;
+const answering = () => streams.has(activeChatId);
+const inputLocked = () => chatBusy || !activeChatId || answering();
 const API_TIMEOUT_MS = 20000;
 const STREAM_IDLE_TIMEOUT_MS = 120000;
 let accountEpoch = 0;
@@ -216,7 +222,7 @@ async function api(path, options = {}) {
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
     const response = await fetch(path, { credentials: 'same-origin', ...options, signal: controller.signal });
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));  // 500 от прокси или сервера — не JSON
     if (!response.ok) {
       const error = new Error(data.detail || 'Не удалось выполнить запрос');
       error.status = response.status;
@@ -238,14 +244,17 @@ async function api(path, options = {}) {
 
 function setChatBusy(busy) {
   chatBusy = busy;
+  const locked = inputLocked();
   newChatButton.disabled = !activeUserId || busy;
-  chatSend.disabled = !activeChatId || busy;
-  chatSend.hidden = Boolean(activeStream);
-  chatStop.hidden = !activeStream;
-  chatReload.disabled = busy;
+  chatSend.disabled = locked;
+  chatSend.hidden = answering();
+  chatStop.hidden = !answering();
+  chatReload.disabled = locked;
+  // следующее сообщение можно набирать, пока агент отвечает; отправить — после ответа
   chatInput.disabled = !activeChatId || busy;
-  chatList.querySelectorAll('button').forEach((button) => { button.disabled = busy; });
-  document.querySelectorAll('.suggestions .chip, .choose-hotel, .choose-package, .flex-button').forEach((button) => { button.disabled = !activeChatId || busy; });
+  chatList.querySelectorAll('.trip').forEach((button) => { button.disabled = busy; });
+  chatList.querySelectorAll('.delete-chat').forEach((button) => { button.disabled = busy || streams.has(button.dataset.chat); });
+  document.querySelectorAll('.suggestions .chip, .choose-hotel, .choose-package, .flex-button').forEach((button) => { button.disabled = locked; });
 }
 
 const mobileChatsQuery = matchMedia('(max-width: 650px)');
@@ -315,18 +324,19 @@ function renderChatList() {
     button.type = 'button';
     button.className = `trip${item.id === activeChatId ? ' active' : ''}`;
     button.setAttribute('aria-current', item.id === activeChatId ? 'true' : 'false');
-    button.textContent = item.title;
-    const date = document.createElement('small');
-    date.textContent = new Date(item.updated_at).toLocaleDateString('ru-RU');
-    button.append(date);
+    const busyHere = streams.has(item.id);
+    button.append(el('span', 'chat-name', item.title),
+      busyHere ? el('small', 'answering', 'отвечает…') : el('small', '', new Date(item.updated_at).toLocaleDateString('ru-RU')));
+    button.title = item.title;
     button.disabled = chatBusy;
     button.addEventListener('click', () => selectChat(item.id));
     const row = el('div', 'chat-list-row');
     const remove = el('button', 'delete-chat', '×');
     remove.type = 'button';
+    remove.dataset.chat = item.id;
     remove.title = 'Удалить чат';
     remove.setAttribute('aria-label', `Удалить чат «${item.title}»`);
-    remove.disabled = chatBusy;
+    remove.disabled = chatBusy || busyHere;
     remove.addEventListener('click', () => deleteChat(item));
     row.append(button, remove);
     chatList.append(row);
@@ -481,7 +491,7 @@ function packageCard(pkg, compact = false) {
   } else {
     const choose = el('button', 'choose-package', 'Выбрать');
     choose.type = 'button';
-    choose.disabled = chatBusy || !activeChatId;
+    choose.disabled = inputLocked();
     choose.addEventListener('click', () => sendMessage(`Беру ${pkg.label}`));
     bottom.append(choose);
   }
@@ -507,7 +517,7 @@ function flexContent(flex) {
   const when = `${flex.shift_days < 0 ? 'раньше' : 'позже'} на ${days} ${plural(days, 'день', 'дня', 'дней')}`;
   const button = el('button', 'flex-button', `Сдвинуть ${when}: дешевле на ${rub(flex.saving_rub)}`);
   button.type = 'button';
-  button.disabled = chatBusy || !activeChatId;
+  button.disabled = inputLocked();
   button.addEventListener('click', () => sendMessage(`Давай сдвинем поездку ${when}: с ${localDay(flex.check_in)} по ${localDay(flex.check_out)}`));
   return [button];
 }
@@ -571,7 +581,7 @@ function hotelCard(hotel, cartIds) {
   } else {
     const choose = el('button', 'choose-hotel', 'Выбрать');
     choose.type = 'button';
-    choose.disabled = chatBusy || !activeChatId;
+    choose.disabled = inputLocked();
     // выбор идёт через агента: он положит отель в корзину и проверит поездку
     choose.addEventListener('click', () => sendMessage(`Беру «${hotel.name}»`));
     bottom.append(choose);
@@ -698,6 +708,7 @@ function resetTrip(trip) {
 // --- сообщения ------------------------------------------------------------------------------
 
 function clearChat() {
+  chatView += 1;
   activeChatId = null;
   chatMessages.replaceChildren(chatEmpty);
   chatEmpty.hidden = false;
@@ -714,7 +725,7 @@ function scrollChat() {
 }
 
 function addChatMessage(role, text) {
-  if (role === 'bot') chatMessages.append(el('div', 'bot-label', '≋ ТИХО'));
+  if (role === 'bot') chatMessages.append(el('div', 'bot-label', '≋ PULSE'));
   const bubble = el('div', `bubble ${role}`, text);
   chatEmpty.hidden = true;
   chatMessages.append(bubble);
@@ -725,7 +736,7 @@ function addChatMessage(role, text) {
 // Ответ агента: статус работы, текст по мере генерации и карточки под ним
 function addBotReply() {
   chatEmpty.hidden = true;
-  const label = el('div', 'bot-label', '≋ ТИХО');
+  const label = el('div', 'bot-label', '≋ PULSE');
   const status = el('div', 'reasoning');
   status.append(el('span', 'spinner'), el('span', 'status-text', 'Думаю…'));
   const bubble = el('div', 'bubble bot');
@@ -797,7 +808,7 @@ function setSuggestions(items) {
     const chip = el('button', 'chip', text);
     chip.type = 'button';
     chip.dataset.prompt = text;
-    chip.disabled = chatBusy || !activeChatId;
+    chip.disabled = inputLocked();
     chip.addEventListener('click', () => sendMessage(text));
     return chip;
   }));
@@ -822,7 +833,7 @@ function showConfirm(container, event) {
   if (event.replaces) card.append(el('p', 'muted', `Заказ ${event.replaces} отменится после оплаты нового`));
   if (event.issues?.length) card.append(issueList(event.issues));
   const decide = (approved) => {
-    if (chatBusy) return;
+    if (inputLocked()) return;
     card.classList.add('decided');
     actions.replaceChildren(el('p', 'muted', approved ? 'Оплата подтверждена' : 'Оплата отменена'));
     streamAgent(`/api/chats/${encodeURIComponent(activeChatId)}/checkout`, { approved });
@@ -911,22 +922,29 @@ function handleEvent(reply, event) {
   } else if (event.type === 'confirm') {
     showConfirm((card) => reply.addCard(card), event);
   } else if (event.type === 'chat') {
-    chats = [event.chat, ...chats.filter((item) => item.id !== event.chat.id)];
-    if (event.chat.id === activeChatId) chatTitle.textContent = event.chat.title;
-    renderChatList();
+    updateChat(event.chat);
   } else if (event.type === 'error') {
     throw new Error(event.detail);
   }
 }
 
-// Один ход агента: запрос, поток SSE, текст и карточки в чате
+// Название и дата чата пришли с сервера: обновляем список, даже если этот чат сейчас не открыт
+function updateChat(chat) {
+  chats = [chat, ...chats.filter((item) => item.id !== chat.id)];
+  if (chat.id === activeChatId) chatTitle.textContent = chat.title;
+  renderChatList();
+}
+
+// Один ход агента: запрос, поток SSE, текст и карточки в чате. Пока он идёт, можно открыть другой
+// чат: поток дочитывается в фоне, а сервер сохраняет ответ в историю.
 async function streamAgent(url, payload) {
-  if (chatBusy || !activeChatId) return;
+  if (inputLocked()) return;
   const epoch = accountEpoch;
   const chatId = activeChatId;
-  const stream = { controller: new AbortController(), timedOut: false };
-  activeStream = stream;
-  const isCurrent = () => activeStream === stream && epoch === accountEpoch && chatId === activeChatId;
+  const stream = { controller: new AbortController(), timedOut: false, view: chatView };
+  streams.set(chatId, stream);
+  // карточки этого хода на экране, пока пользователь не ушёл из чата и не перерисовал его
+  const onScreen = () => epoch === accountEpoch && chatId === activeChatId && stream.view === chatView;
   let timeout;
   const resetTimeout = () => {
     clearTimeout(timeout);
@@ -938,7 +956,8 @@ async function streamAgent(url, payload) {
   resetTimeout();
   chatError.hidden = true;
   chatReload.hidden = true;
-  setChatBusy(true);
+  renderChatList();
+  setChatBusy(chatBusy);
   const reply = addBotReply();
   try {
     const response = await fetch(url, {
@@ -950,14 +969,16 @@ async function streamAgent(url, payload) {
     });
     resetTimeout();
     if (!response.ok) {
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       throw new Error(data.detail || 'Не удалось отправить сообщение');
     }
     await readEvents(response, (event) => {
-      if (isCurrent() && !stream.controller.signal.aborted) handleEvent(reply, event);
+      if (stream.controller.signal.aborted || epoch !== accountEpoch) return;
+      if (event.type === 'chat') updateChat(event.chat);
+      else if (onScreen() || event.type === 'error') handleEvent(reply, event);
     }, resetTimeout);
   } catch (error) {
-    if (isCurrent()) {
+    if (onScreen()) {
       if (stream.controller.signal.aborted) error = new Error(stream.timedOut
         ? 'Две минуты нет новых данных. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
         : 'Ожидание остановлено. Запрос может ещё выполняться. Обновите чат перед повторной отправкой.');
@@ -967,17 +988,24 @@ async function streamAgent(url, payload) {
   } finally {
     clearTimeout(timeout);
     reply.finish();
-    if (isCurrent()) {
-      activeStream = null;
-      setChatBusy(false);
-      chatInput.focus();
+    if (streams.get(chatId) === stream) streams.delete(chatId);
+    if (epoch === accountEpoch) {
+      renderChatList();
+      setChatBusy(chatBusy);
+      if (chatId === activeChatId) {
+        // в чат вернулись посреди ответа: карточки этого хода не на экране, ответ берём из истории
+        if (stream.view !== chatView) reloadChat();
+        else chatInput.focus();
+      }
       refreshPurchases();
     }
   }
 }
 
-chatStop.addEventListener('click', () => activeStream?.controller.abort());
-chatReload.addEventListener('click', async () => {
+chatStop.addEventListener('click', () => streams.get(activeChatId)?.controller.abort());
+chatReload.addEventListener('click', reloadChat);
+
+async function reloadChat() {
   if (chatBusy || !activeChatId) return;
   const epoch = accountEpoch;
   const chatId = activeChatId;
@@ -993,11 +1021,11 @@ chatReload.addEventListener('click', async () => {
       refreshPurchases();
     }
   }
-});
+}
 
 function sendMessage(text) {
   const message = text.trim();
-  if (!message || chatBusy || !activeChatId) return;
+  if (!message || inputLocked()) return;
   closePendingConfirms();
   addChatMessage('user', message);
   streamAgent('/api/chat', { session_id: activeChatId, message });
@@ -1016,14 +1044,19 @@ function displayChat(data) {
   }
   // заказ ждал подтверждения, когда страницу закрыли: возвращаем кнопку оплаты
   if (data.trip?.confirm) showConfirm((card) => chatMessages.append(card), data.trip.confirm);
+  if (streams.has(data.chat.id)) {
+    const status = el('div', 'reasoning');
+    status.append(el('span', 'spinner'), el('span', 'status-text', 'Агент ещё отвечает в этом чате…'));
+    chatMessages.append(status);
+  }
   scrollChat();
   renderChatList();
   if (mobileChatsQuery.matches) setChatsOpen(false);
 }
 
 async function loadUserChats(userId) {
-  activeStream?.controller.abort();
-  activeStream = null;
+  streams.forEach((stream) => stream.controller.abort());
+  streams.clear();
   activeUserId = userId;
   const epoch = ++accountEpoch;
   chats = [];
@@ -1111,7 +1144,7 @@ chatInput.addEventListener('keydown', (event) => {
 });
 chatForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  if (!chatInput.value.trim() || chatBusy || !activeChatId) return;
+  if (!chatInput.value.trim() || inputLocked()) return;
   const message = chatInput.value;
   chatInput.value = '';
   resizeChatInput();
@@ -1130,7 +1163,6 @@ async function loadLocation() {
     const place = await api('/api/location');
     locationCity = place.city;
     if (!place.examples.length) return;
-    const checkout = defaultSuggestions.find((chip) => chip.dataset.prompt === 'Оформляй');
     const chips = place.examples.map(({ label, prompt }) => {
       const chip = el('button', 'chip', label);
       chip.type = 'button';
@@ -1139,7 +1171,7 @@ async function loadLocation() {
       return chip;
     });
     const showingDefaults = suggestionsBox.firstElementChild === defaultSuggestions[0];
-    defaultSuggestions.splice(0, defaultSuggestions.length, ...chips, ...(checkout ? [checkout] : []));
+    defaultSuggestions.splice(0, defaultSuggestions.length, ...chips);
     if (showingDefaults) suggestionsBox.replaceChildren(...defaultSuggestions);
     chatEmpty.textContent = 'Опишите поездку своими словами: откуда, когда, с кем и на какой бюджет. '
       + `Я соберу дорогу${place.trains ? ' (самолёт или поезд)' : ''}, трансфер и отель ${place.title === place.city ? '' : `(${place.title}) `}`
@@ -1283,7 +1315,7 @@ function actionButton(text, action, className = 'cancel') {
 }
 
 async function deleteChat(item) {
-  if (chatBusy) return;
+  if (chatBusy || streams.has(item.id)) return;
   if (!await confirmAction({ title: `Удалить чат «${item.title}»?`, description: 'Поездки и заказы сохранятся.', action: 'Удалить', danger: true }) || chatBusy) return;
   const epoch = accountEpoch;
   setChatBusy(true);
@@ -1337,9 +1369,9 @@ function paintPurchases() {
     card.append(el('h3', '', cart.title), cartContent(cart));
     const actions = el('div', 'confirm-actions');
     const pay = actionButton(`Оплатить ${rub(cart.total_rub)}`, () => purchaseAction(cart, true), 'pay');
-    pay.disabled = purchaseBusy || chatBusy || cart.issues.some(i => i.severity === 'blocker');
+    pay.disabled = purchaseBusy || chatBusy || streams.has(cart.chat_id) || cart.issues.some(i => i.severity === 'blocker');
     const remove = actionButton('Удалить', () => purchaseAction(cart, false), 'cancel danger');
-    remove.disabled = purchaseBusy || chatBusy;
+    remove.disabled = purchaseBusy || chatBusy || streams.has(cart.chat_id);
     actions.append(pay, remove);
     if (!cart.archived) {
       const open = actionButton('Перейти в чат', () => { basketDialog.close(); selectChat(cart.chat_id); }, 'text-link');
@@ -1366,7 +1398,7 @@ function paintPurchases() {
 }
 
 async function purchaseAction(cart, pay) {
-  if (purchaseBusy || chatBusy) return;
+  if (purchaseBusy || chatBusy || streams.has(cart.chat_id)) return;
   const paymentPrompt = cart.replaces
     ? `Перенести заказ ${cart.replaces} за ${rub(cart.total_rub)}?`
     : cart.extends ? `Оформить дополнение к заказу ${cart.extends} за ${rub(cart.total_rub)}?`
@@ -1376,7 +1408,7 @@ async function purchaseAction(cart, pay) {
     description: pay ? `${cart.replaces ? 'Прежний заказ отменится. ' : ''}Демо-оплата, деньги не спишутся.` : 'Поездка исчезнет из корзины.',
     action: pay ? 'Оформить' : 'Удалить',
     danger: !pay,
-  }) || purchaseBusy || chatBusy) return;
+  }) || purchaseBusy || chatBusy || streams.has(cart.chat_id)) return;
   const epoch = accountEpoch;
   purchaseBusy = true;
   setChatBusy(true);

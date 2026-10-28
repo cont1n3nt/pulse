@@ -3,12 +3,17 @@
 ## Для бэка: вся интеграция
 
 Агент отдаёт поток событий (SSE), бэк пересылает их клиенту и сохраняет текст ответа в историю чата.
-Роуты — в `backend/endpoints.py`, все требуют cookie-сессию и проверяют, что чат принадлежит пользователю.
+Роуты — в `backend/endpoints.py`. Кроме `/health`, `/api/location` и входа все требуют cookie-сессию
+и проверяют, что чат принадлежит пользователю. Запросы, которые что-то меняют, проверяют заголовок `Origin`.
 ID чата служит `session_id` агента.
 
 | Роут | Что делает |
 |---|---|
-| `POST /api/chat` `{session_id, message}` | сообщение пользователя → поток событий |
+| `GET /health` | `{"status": "ok"}`, если сервер отвечает и база открывается (healthcheck в Docker) |
+| `POST /api/auth/guest` | гостевой аккаунт и cookie-сессия; в ответе код доступа для входа с другого устройства |
+| `POST /api/auth/login` `{code}`, `POST /api/auth/rotate`, `GET /api/auth/me` | вход по коду, новый код, текущий пользователь |
+| `GET /api/chats`, `POST /api/chats` | чаты пользователя (новые сверху); создать пустой чат |
+| `POST /api/chat` `{session_id, message}` | сообщение пользователя → поток событий; первое сообщение даёт чату короткое название |
 | `POST /api/chats/{id}/checkout` `{approved}` | кнопка «Оплатить» / «Отмена» → поток событий |
 | `GET /api/chats/{id}` | история чата + `trip`: пакеты, погода, выдача, корзина с маршрутом, заказы, ожидающее подтверждение |
 | `GET /api/orders/{id}` | заказ (`Order`) |
@@ -27,8 +32,9 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 
 `stream_message` и `resume_checkout` принимают `user_id` — ключ долговременной памяти.
 
-`account_cart` и `change_account_cart` обслуживают кнопки общей корзины. Изменения сериализуются
-с ходами агента: устаревшая `version`, пустая корзина или блокеры оплаты дают HTTP 409.
+`account_cart` и `change_account_cart` обслуживают кнопки общей корзины. Чтение не ждёт хода агента,
+а оплата и удаление выполняются по очереди с ходами агента в этом чате: устаревшая `version`, пустая корзина
+или блокеры оплаты дают HTTP 409.
 Корзина содержит `replaces` / `extends` для переноса или дополнения заказа — и в SSE, и в REST.
 Оплата из профиля сохраняет те же правила поездов, трансфера и сопровождения заказа, что и `checkout`;
 ожидающее подтверждение агента при этом завершается. Скрытие заказа из истории не отменяет его.
@@ -48,13 +54,14 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 | `block` | `block`, данные | карточки: `packages` (`items`, `flex`, `weather`), `hotels`/`flights` (`items`), `cart` (`items`, `total_rub`, `issues`, `itinerary`), `order` (`order`), `reply` (`recommendation`, `suggestions`) — в конце хода |
 | `token` | `text` | кусок ответа модели (из поля `text` структурного ответа `AgentReply`, по мере генерации) |
 | `confirm` | `action: "checkout"`, `items`, `total_rub`, `issues`, `replaces`, `extends` | агент ждёт подтверждения оплаты кнопкой; `replaces` — номер заказа, который заменит перенос, `extends` — к которому добавляется трансфер |
-| `error` | `detail` | сбой; стек пишется только в лог сервера |
+| `error` | `detail` | сбой. Если дело в настройке модели (не задан или не принят `LLM_API_KEY`, нет такой `LLM_MODEL`, лимит, провайдер недоступен), `detail` называет причину; иначе — общий текст. Стек пишется только в лог сервера |
 | `done` | — | ход закончен |
 
 ## Состояние поездки
 
 `TripState` хранится в состоянии графа LangGraph (поле `trip`) и сохраняется чекпоинтером в
-`backend/data/agent_memory.db` вместе с историей диалога, поэтому переживает перезапуск сервера.
+`agent_memory.db` вместе с историей диалога, поэтому переживает перезапуск сервера. Все файлы данных агента
+лежат в `DATA_DIR`: в Docker это том `/app/data`, при локальном запуске — `backend/data/`.
 
 - Инструменты не меняют состояние напрямую. Они возвращают **операции** (`requirements`, `hotels`, `flights`,
   `cart_add`, `cart_remove`, `order`), а reducer `trip.reduce_trip` применяет их по очереди. Параллельные вызовы
@@ -91,7 +98,7 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 2. Иначе инструмент вызывает `interrupt()`: граф останавливается, клиент получает событие `confirm`.
 3. Кнопка шлёт `POST /api/chats/{id}/checkout`. Граф продолжается с того же места, и инструмент выполняется
    заново с начала (поэтому до `interrupt()` у него нет побочных эффектов).
-4. При подтверждении `orders.create` пишет заказ в `backend/data/orders.db`. Повторное подтверждение той же версии корзины
+4. При подтверждении `orders.create` пишет заказ в `orders.db` в `DATA_DIR`. Повторное подтверждение той же версии корзины
    возвращает тот же заказ. Оплата имитируется (`payment: "simulated"`).
 
 ## После покупки
@@ -112,10 +119,11 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 ```
 backend/
   main.py          FastAPI-приложение: авторизация, статика
-  endpoints.py     роуты: чаты, поток SSE, оплата, память, фото
+  endpoints.py     роуты: чаты, поток SSE, оплата, корзина, память, фото
+  auth.py          cookie-сессии и коды доступа
   agent/
     __init__.py    публичный интерфейс — бэк импортирует только отсюда
-    contracts.py   ДОГОВОР: TripState, Package, CartItem, Issue, Order, Block, AgentReply (менять вдвоём)
+    contracts.py   общие модели агента, бэка и фронта: TripState, Package, CartItem, Issue, Order, Block, AgentReply
     service.py     граф агента, middleware, состояние в чекпоинте, поток событий, подтверждение оплаты
     trip.py        операции над состоянием, проверка поездки, маршрут, сводка для модели (без LangChain)
     packages.py    сборка пакетов «перелёт + трансфер + отель», сравнение в рублях, гибкие даты
@@ -129,8 +137,9 @@ backend/
     reference.py   справочники городов/авиакомпаний → backend/seed/
     adapters/      сырой источник → стандартные модели (по файлу на источник)
     tools/         инструменты агента; _state.py — общее для работы с состоянием
+frontend/          веб-клиент без сборки: index.html, app.js, style.css
 evals/             сценарии на настоящей модели и отчёты прогонов
-tests/             юнит-тесты детерминированного ядра (без сети и модели)
+tests/             тесты ядра и API без сети и модели; browser_*.py — браузерные, нужен Playwright
 scripts/           выгрузка отелей локации из OpenStreetMap в seed: fetch_osm.py <локация>
 ```
 
@@ -148,11 +157,12 @@ scripts/           выгрузка отелей локации из OpenStreetM
 ```
 uv sync
 cp .env.example .env    # вписать ключи (LLM_API_KEY, TRAVELPAYOUTS_TOKEN)
-uv run pytest                # юнит-тесты, без ключей
+uv run pytest                # тесты ядра и API, без ключей и сети
 uv run python -m evals.run   # сценарии на настоящей модели
 ```
 
-После обновления с прежней версии удалите `backend/data/agent_memory.db`: в старых сессиях нет состояния поездки.
+Без `LLM_API_KEY` сервис запускается: открываются чаты, корзина и заказы, а на сообщение агент отвечает,
+что модель не настроена. Предупреждение об этом есть в логе при старте.
 
 Ограничения текущей версии:
 - Запускать одним воркером: запросы внутри одной сессии обрабатываются по очереди через блокировку в процессе.
