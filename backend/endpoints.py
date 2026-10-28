@@ -39,6 +39,10 @@ class CheckoutDecision(BaseModel):
     approved: bool
 
 
+class RenameChatRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=60)
+
+
 def check_origin(request: Request) -> None:
     origin = request.headers.get("origin")
     expected = f"{request.url.scheme}://{request.headers.get('host', '')}"
@@ -214,7 +218,7 @@ def chat(request: Request, payload: ChatRequest) -> StreamingResponse:
             if result.rowcount == 0:
                 raise HTTPException(404, "Чат не найден")
             current = db.get(Chat, payload.session_id)
-            if db.scalar(select(ChatMessage.id).where(ChatMessage.chat_id == current.id).limit(1)) is None:
+            if current.title == "Новый чат" and db.scalar(select(ChatMessage.id).where(ChatMessage.chat_id == current.id).limit(1)) is None:
                 current.title = short_title(text)
             db.add(ChatMessage(chat_id=current.id, role="user", content=text))
             db.commit()
@@ -329,6 +333,24 @@ def get_chat(request: Request, chat_id: str) -> dict:
         raise HTTPException(503, "База данных недоступна") from exc
     data["trip"] = trip_data(chat_id)
     return data
+
+
+@router.patch("/api/chats/{chat_id}")
+def rename_chat(request: Request, chat_id: str, payload: RenameChatRequest) -> dict:
+    check_origin(request)
+    user_id = require_user_id(request)
+    title = " ".join(payload.title.split())
+    if not title:
+        raise HTTPException(422, "Введите название чата")
+    try:
+        with request.app.state.db() as db:
+            item = owned_chat(db, chat_id, user_id)
+            item.title = title
+            db.commit()
+            db.refresh(item)
+            return {"chat": chat_data(item)}
+    except SQLAlchemyError as exc:
+        raise HTTPException(503, "Не удалось сохранить название. Попробуйте ещё раз") from exc
 
 
 @router.post("/api/auth/guest")

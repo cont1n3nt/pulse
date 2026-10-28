@@ -116,6 +116,145 @@ confirmDialog.addEventListener('keydown', event => {
   }
 });
 
+const renameDialog = document.querySelector('#rename-dialog');
+const renameForm = document.querySelector('#rename-form');
+const renameInput = document.querySelector('#rename-input');
+const renameCount = document.querySelector('#rename-count');
+const renameError = document.querySelector('#rename-error');
+const renameSubmit = document.querySelector('#rename-submit');
+let openMenuChatId = null;
+let renameTarget = null;
+let renamePending = false;
+let renameTriggerId = null;
+
+function closeChatMenus() {
+  openMenuChatId = null;
+  chatList.querySelectorAll('.chat-menu').forEach((menu) => { menu.hidden = true; });
+  chatList.querySelectorAll('.chat-options').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+}
+
+function updateRenameState() {
+  renameCount.textContent = `${renameInput.value.length} / 60`;
+  renameInput.removeAttribute('aria-invalid');
+  renameError.hidden = true;
+  renameSubmit.disabled = renamePending || !renameInput.value.trim();
+}
+
+function openRenameDialog(item) {
+  if (chatBusy || renameDialog.open || confirmDialog.open) return;
+  closeChatMenus();
+  const latest = chats.find((chat) => chat.id === item.id) || item;
+  renameTarget = { id: latest.id, epoch: accountEpoch };
+  renameTriggerId = latest.id;
+  renameInput.value = latest.title;
+  updateRenameState();
+  renameDialog.showModal();
+  renameInput.focus();
+  renameInput.select();
+}
+
+function closeRenameDialog() {
+  if (renamePending) return;
+  renameDialog.close();
+}
+
+renameDialog.addEventListener('close', () => {
+  renameTarget = null;
+  const trigger = renameTriggerId && chatList.querySelector(`.chat-options[data-chat="${CSS.escape(renameTriggerId)}"]`);
+  renameTriggerId = null;
+  if (trigger && !trigger.disabled) trigger.focus({ preventScroll: true });
+  else if (!newChatButton.disabled) newChatButton.focus({ preventScroll: true });
+});
+renameDialog.addEventListener('cancel', (event) => {
+  if (renamePending) event.preventDefault();
+});
+renameDialog.addEventListener('click', (event) => {
+  if (event.target !== renameDialog) return;
+  const rect = renameDialog.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
+    closeRenameDialog();
+  }
+});
+renameDialog.addEventListener('keydown', (event) => {
+  if (event.key !== 'Tab') return;
+  const controls = [...renameDialog.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
+  if (!controls.length) return;
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
+document.querySelector('#rename-close').addEventListener('click', closeRenameDialog);
+document.querySelector('#rename-cancel').addEventListener('click', closeRenameDialog);
+renameInput.addEventListener('input', updateRenameState);
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.chat-list-row')) closeChatMenus();
+});
+
+renameForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!renameTarget || renamePending) return;
+  const { id, epoch } = renameTarget;
+  const title = renameInput.value.trim().replace(/\s+/g, ' ');
+  if (!title || title.length > 60) {
+    renameError.textContent = 'Введите название от 1 до 60 символов';
+    renameError.hidden = false;
+    renameInput.setAttribute('aria-invalid', 'true');
+    renameInput.focus();
+    return;
+  }
+  renamePending = true;
+  setChatBusy(true);
+  renameDialog.setAttribute('aria-busy', 'true');
+  renameDialog.querySelectorAll('button, input').forEach((node) => { node.disabled = true; });
+  renameSubmit.textContent = 'Сохраняем…';
+  try {
+    const data = await api(`/api/chats/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    });
+    if (epoch !== accountEpoch) return;
+    chats = chats.map((chat) => (chat.id === id ? data.chat : chat));
+    if (activeChatId === id) chatTitle.textContent = data.chat.title;
+    if (purchases.carts.some((cart) => cart.chat_id === id)) {
+      purchases = {
+        ...purchases,
+        carts: purchases.carts.map((cart) => (cart.chat_id === id ? { ...cart, title: data.chat.title } : cart)),
+      };
+      paintPurchases();
+    }
+    renamePending = false;
+    setChatBusy(false);
+    renderChatList();
+    refreshPurchases();
+    renameDialog.close();
+  } catch (error) {
+    if (epoch === accountEpoch) {
+      renameError.textContent = error.message;
+      renameError.hidden = false;
+      renameInput.setAttribute('aria-invalid', 'true');
+    }
+  } finally {
+    renamePending = false;
+    renameDialog.removeAttribute('aria-busy');
+    renameDialog.querySelectorAll('button, input').forEach((node) => { node.disabled = false; });
+    renameSubmit.textContent = 'Сохранить';
+    if (epoch === accountEpoch) {
+      setChatBusy(false);
+      if (renameDialog.open) {
+        updateRenameState();
+        renameInput.focus();
+      }
+    }
+  }
+});
+
 function keepPanelInViewport() {
   if (accountPanel.hidden) return;
   const rect = accountPanel.getBoundingClientRect();
@@ -310,7 +449,7 @@ async function api(path, options = {}) {
         if (controller.signal.aborted) throw err;
         return {};
       });  // 500 от прокси или сервера — не JSON
-      const error = new Error(data.detail || 'Не удалось выполнить запрос');
+      const error = new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось выполнить запрос');
       error.status = response.status;
       throw error;
     }
@@ -413,6 +552,7 @@ function showChatError(error) {
 
 function renderChatList() {
   chatList.replaceChildren();
+  if (openMenuChatId && !chats.some((chat) => chat.id === openMenuChatId)) openMenuChatId = null;
   for (const item of chats) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -426,16 +566,67 @@ function renderChatList() {
     );
     button.title = item.title;
     button.disabled = chatBusy;
-    button.addEventListener('click', () => selectChat(item.id));
+    button.addEventListener('click', () => {
+      closeChatMenus();
+      selectChat(item.id);
+    });
     const row = el('div', 'chat-list-row');
-    const remove = el('button', 'delete-chat', '×');
-    remove.type = 'button';
-    remove.dataset.chat = item.id;
-    remove.title = 'Удалить чат';
-    remove.setAttribute('aria-label', `Удалить чат «${item.title}»`);
-    remove.disabled = chatBusy;
-    remove.addEventListener('click', () => deleteChat(item));
-    row.append(button, remove);
+    const menuOpen = !chatBusy && openMenuChatId === item.id;
+    const options = el('button', 'chat-options', '⋯');
+    options.type = 'button';
+    options.dataset.chat = item.id;
+    options.title = 'Действия с чатом';
+    options.setAttribute('aria-label', `Действия с чатом «${item.title}»`);
+    options.setAttribute('aria-haspopup', 'menu');
+    options.setAttribute('aria-expanded', String(menuOpen));
+    options.disabled = chatBusy;
+    const menu = el('div', 'chat-menu');
+    menu.id = `chat-actions-${item.id}`;
+    menu.setAttribute('role', 'menu');
+    menu.hidden = !menuOpen;
+    options.setAttribute('aria-controls', menu.id);
+    const renameBtn = el('button', 'rename-chat', 'Переименовать');
+    renameBtn.type = 'button';
+    renameBtn.setAttribute('role', 'menuitem');
+    renameBtn.disabled = chatBusy;
+    renameBtn.addEventListener('click', () => openRenameDialog(item));
+    const removeBtn = el('button', 'delete-chat', 'Удалить чат');
+    removeBtn.type = 'button';
+    removeBtn.setAttribute('role', 'menuitem');
+    removeBtn.dataset.chat = item.id;
+    removeBtn.setAttribute('aria-label', `Удалить чат «${item.title}»`);
+    removeBtn.disabled = chatBusy;
+    removeBtn.addEventListener('click', () => {
+      closeChatMenus();
+      options.focus({ preventScroll: true });
+      deleteChat(item);
+    });
+    menu.append(renameBtn, removeBtn);
+    options.addEventListener('click', () => {
+      const opening = menu.hidden;
+      closeChatMenus();
+      if (opening) {
+        openMenuChatId = item.id;
+        menu.hidden = false;
+        options.setAttribute('aria-expanded', 'true');
+        renameBtn.focus();
+      }
+    });
+    menu.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeChatMenus();
+        options.focus({ preventScroll: true });
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const items = [...menu.querySelectorAll('button:not(:disabled)')];
+        if (!items.length) return;
+        const step = event.key === 'ArrowDown' ? 1 : items.length - 1;
+        items[(items.indexOf(document.activeElement) + step) % items.length].focus();
+      }
+    });
+    row.append(button, options, menu);
     chatList.append(row);
   }
 }
@@ -1073,7 +1264,7 @@ async function streamAgent(url, payload) {
         if (stream.controller.signal.aborted) throw err;
         return {};
       });
-      throw new Error(data.detail || 'Не удалось отправить сообщение');
+      throw new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось отправить сообщение');
     }
     await readEvents(response, (event) => {
       if (epoch !== accountEpoch || stream.controller.signal.aborted) return;
@@ -1205,6 +1396,12 @@ async function loadUserChats(userId) {
   for (const stream of streams.values()) stream.controller.abort();
   streams.clear();
   reloadingChats.clear();
+  closeChatMenus();
+  if (renameDialog.open) {
+    renamePending = false;
+    renameDialog.close();
+  }
+  if (confirmDialog.open) confirmDialog.close('cancel');
   activeUserId = userId;
   const epoch = ++accountEpoch;
   ++memoryRequest;
@@ -1437,6 +1634,10 @@ form.addEventListener('submit', async (event) => {
 });
 document.addEventListener('keydown', (event) => {
   if (document.querySelector('dialog[open]')) return;
+  if (event.key === 'Escape' && openMenuChatId) {
+    closeChatMenus();
+    return;
+  }
   if (event.key === 'Escape') {
     if (mobileChatsQuery.matches) setChatsOpen(false);
     if (drawerQuery.matches) setTripOpen(false);

@@ -205,11 +205,55 @@ class ChatSwitchingWhileThinkingTests(browser_purchases.BasketStatusTests):
         self.page.locator("#chat-send").click()
         self.assertTrue(self.started[chat1].wait(timeout=5))
 
+        self.page.locator("#chat-list .chat-options").first.click()
         self.page.locator("#chat-list .delete-chat").first.click()
         self.page.locator("#confirm-accept").click()
         self.page.wait_for_function("id => activeChatId && activeChatId !== id && !chatBusy && !chatLocked()", arg=chat1)
         self.assertEqual(self.page.evaluate("streams.size"), 0)
         self.assertTrue(self.page.locator("#chat-error").is_hidden())
+
+    def test_rename_chat_updates_ui_and_keeps_order_while_thinking(self):
+        chat1 = self.page.evaluate("activeChatId")
+        gate1 = self.hold_chat(chat1)
+
+        self.page.locator("#chat-input").fill("Первый запрос")
+        self.page.locator("#chat-send").click()
+        self.assertTrue(self.started[chat1].wait(timeout=5))
+
+        self.page.locator("#new-chat").click()
+        self.page.wait_for_function("id => activeChatId !== id && !chatBusy", arg=chat1)
+        chat2 = self.page.evaluate("activeChatId")
+
+        # Rename active empty chat2 first: first message later must keep custom name, and order stays [chat2, chat1].
+        self.page.locator(f'#chat-list .chat-options[data-chat="{chat2}"]').click()
+        self.page.locator(f'#chat-actions-{chat2} .rename-chat').click()
+        self.assertTrue(self.page.locator("#rename-dialog").is_visible())
+        self.assertEqual(self.page.locator("#rename-input").input_value(), "Новый чат")
+        self.assertEqual(self.page.locator("#rename-count").inner_text(), "9 / 60")
+
+        self.page.locator("#rename-input").fill("  Отпуск   в горах  ")
+        self.page.locator("#rename-submit").click()
+        self.page.wait_for_function("!document.querySelector('#rename-dialog').open && !chatBusy")
+        self.assertEqual(self.page.locator("#chat-title").inner_text(), "Отпуск в горах")
+
+        # Also rename background thinking chat1: must preserve order [chat2, chat1] and keep custom title when stream finishes.
+        self.page.locator(f'#chat-list .chat-options[data-chat="{chat1}"]').click()
+        self.page.locator(f'#chat-actions-{chat1} .rename-chat').click()
+        self.page.locator("#rename-input").fill("Майский Сочи")
+        self.page.locator("#rename-submit").click()
+        self.page.wait_for_function("!document.querySelector('#rename-dialog').open && !chatBusy")
+        self.assertEqual(
+            self.page.locator("#chat-list .chat-name").all_inner_texts(),
+            ["Отпуск в горах", "Майский Сочи"],
+        )
+
+        gate1.set()
+        self.page.wait_for_function("streams.size === 0")
+        # Finishing reply moves chat1 to top, while preserving its renamed title!
+        self.assertEqual(
+            self.page.locator("#chat-list .chat-name").all_inner_texts(),
+            ["Майский Сочи", "Отпуск в горах"],
+        )
 
 
     def test_reload_error_clears_spinner_and_manual_reload_recovers(self):
