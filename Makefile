@@ -25,7 +25,7 @@ evals:         ## прогнать сценарии агента на насто
 test:          ## юнит-тесты детерминированного ядра: пакеты, проверка поездки, изменение заказа (без сети и модели)
 	uv run pytest -q
 
-seed:          ## заново выгрузить отели локации из OpenStreetMap: make seed LOCATION=kaliningrad
+seed:          ## заново выгрузить отели локации из OpenStreetMap: make seed LOCATION=sochi
 	uv run python scripts/fetch_osm.py $(LOCATION)
 
 secrets:       ## зашифровать .env для жюри в secrets.env.age (нужен age)
