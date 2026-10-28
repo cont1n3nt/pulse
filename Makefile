@@ -28,8 +28,10 @@ test:          ## юнит-тесты детерминированного яд�
 seed:          ## заново выгрузить отели локации из OpenStreetMap: make seed LOCATION=sochi
 	uv run python scripts/fetch_osm.py $(LOCATION)
 
-secrets:       ## зашифровать .env для жюри в secrets.env.age (нужен age)
-	age -r $(JURY_AGE_KEY) -o secrets.env.age .env
+secrets:       ## зашифровать для жюри в secrets.env.age только ключи, нужные для запуска (нужен age)
+	grep -E '^(LLM_|TRAVELPAYOUTS_TOKEN|YANDEX_RASP_KEY|LOG_LEVEL)' .env | tr -d '\r' > .env.jury
+	age -r $(JURY_AGE_KEY) -o secrets.env.age .env.jury
+	rm -f .env.jury
 
 env:           ## создать .env из примера, если его ещё нет
 	@test -f .env || cp .env.example .env
