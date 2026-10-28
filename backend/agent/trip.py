@@ -18,11 +18,11 @@ reducer графа применяет операции по очереди. По
                                                 заказ оформлен, корзина очищается; cancelled — заменённый заказ
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
-from .adapters import hotels as hotels_db
+from . import providers
 from .adapters import trains
-from .contracts import CartItem, FlightOption, HotelOption, Issue, Package, Requirements, TransferOption, TripState
+from .contracts import AMENITY_NAMES, CartItem, FlightOption, HotelOption, Issue, Package, Requirements, TransferOption, TripState
 from .location import HERE
 
 AIRPORT_BUFFER_MIN = 90  # приехать в аэропорт до вылета
@@ -86,7 +86,7 @@ def apply(trip: TripState, op: dict) -> TripState:
 
 
 def _direction(flight: FlightOption) -> str | None:
-    arrivals = trains.STATIONS if flight.mode == "train" else hotels_db.AIRPORTS
+    arrivals = trains.STATIONS if flight.mode == "train" else (HERE.airport.code,)
     if flight.to_airport in arrivals:
         return "outbound"
     if flight.from_airport in arrivals:
@@ -105,7 +105,7 @@ def _follow_hotel(trip: TripState, hotel: HotelOption) -> None:
         station, km = trains.nearest_station(hotel)
         fresh = trains.station_transfer(hotel, station, km, guests)
     else:
-        fresh = hotels_db.transfer(hotel, guests)
+        fresh = providers.transfers().transfer(hotel, guests)
     if fresh:
         trip.cart.append(transfer_item(fresh))
 
@@ -125,7 +125,7 @@ def refresh(trip: TripState) -> TripState:
             item.price_rub = price * passengers if price is not None else None
         elif item.kind == "transfer":
             # гостей стало больше или меньше: машина и цена такси под новое число гостей
-            fresh = hotels_db.for_guests(TransferOption.model_validate(item.snapshot), passengers)
+            fresh = providers.transfers().for_guests(TransferOption.model_validate(item.snapshot), passengers)
             if fresh.price_rub != item.price_rub or fresh.car != item.snapshot.get("car"):
                 trip.cart[i] = transfer_item(fresh)
     trip.cart_total_rub = sum(c.price_rub or 0 for c in trip.cart)
@@ -241,7 +241,7 @@ def _check_hotel(hotel: HotelOption, r: Requirements, add) -> None:
         add("dates_mismatch", "blocker",
             f"Отель в корзине на {_dates(hotel.check_in, hotel.check_out)}, а поездка сейчас "
             f"{_dates(r.check_in, r.check_out)}: нужно заново подобрать отель на новые даты.")
-    fresh = hotels_db.quote(hotel.id, hotel.check_in, hotel.check_out)
+    fresh = providers.hotels().quote(hotel.id, hotel.check_in, hotel.check_out)
     if fresh is None or not fresh.available:
         add("unavailable", "blocker", f"{hotel.name} больше недоступен на эти даты.")
     elif fresh.total_price_rub != hotel.total_price_rub:
@@ -256,7 +256,7 @@ def _check_hotel(hotel: HotelOption, r: Requirements, add) -> None:
         if "kids" not in required:
             required.append("kids")
     for code in required:
-        name = hotels_db.AMENITY_NAMES.get(code, code)
+        name = AMENITY_NAMES.get(code, code)
         value = hotel.amenities.get(code)
         if value is False:
             add(f"amenity_{code}", "blocker", f"В {hotel.name} нет условия «{name}».")
@@ -281,14 +281,14 @@ def _check_arrival(hotel: HotelOption, flight: FlightOption, road: int | None, a
         add("early_arrival", "blocker",
             f"{word} {arrive:%d.%m}, а заезд только {hotel.check_in:%d.%m}: на ночь до заезда нет жилья.")
         return
-    transfer = road if road is not None else hotels_db.transfer_minutes(hotel)
+    transfer = road if road is not None else providers.transfers().transfer_minutes(hotel)
     at_hotel = arrive + timedelta(minutes=transfer or 0)
-    check_in = datetime.combine(hotel.check_in, hotels_db.CHECK_IN_TIME)
+    check_in = datetime.combine(hotel.check_in, check_in_time(hotel))
     wait = check_in - at_hotel
     if arrive.hour < NIGHT_END_H:
         # прилёт ночью в день заезда: номер оплачен только со следующей ночи
         add("night_arrival", "warning",
-            f"{word} {arrive:%d.%m в %H:%M} — ночью, а заселение с {hotels_db.CHECK_IN_TIME:%H:%M}: "
+            f"{word} {arrive:%d.%m в %H:%M} — ночью, а заселение с {check_in_time(hotel):%H:%M}: "
             f"эта ночь без жилья, ждать около {_hours(wait)}. Лучше рейс днём или отель с ночи "
             f"{hotel.check_in - timedelta(days=1):%d.%m}.")
     elif wait >= timedelta(hours=EARLY_CHECKIN_WAIT_H):
@@ -296,7 +296,7 @@ def _check_arrival(hotel: HotelOption, flight: FlightOption, road: int | None, a
         road_text = f", дорога {place} около {transfer} мин" if transfer else ""
         add("early_checkin", "warning",
             f"{word} в {arrive:%H:%M}{road_text}, в отеле около {at_hotel:%H:%M}, а заселение с "
-            f"{hotels_db.CHECK_IN_TIME:%H:%M}: ждать около {_hours(wait)}. "
+            f"{check_in_time(hotel):%H:%M}: ждать около {_hours(wait)}. "
             f"Можно запросить ранний заезд или оставить вещи на ресепшене.")
 
 
@@ -312,14 +312,14 @@ def _check_departure(hotel: HotelOption, flight: FlightOption, road: int | None,
         add("unused_night", "warning",
             f"{word} {depart:%d.%m}, а отель оплачен до {hotel.check_out:%d.%m}: последняя ночь не используется.")
         return
-    transfer = road if road is not None else (hotels_db.transfer_minutes(hotel) or 0)
+    transfer = road if road is not None else (providers.transfers().transfer_minutes(hotel) or 0)
     buffer = trains.BOARDING_BUFFER_MIN if train else AIRPORT_BUFFER_MIN
     leave = depart - timedelta(minutes=transfer + buffer)
-    check_out = datetime.combine(hotel.check_out, hotels_db.CHECK_OUT_TIME)
+    check_out = datetime.combine(hotel.check_out, check_out_time(hotel))
     if leave - check_out >= timedelta(hours=LATE_CHECKOUT_WAIT_H):
         place = "на вокзал" if train else "в аэропорт"
         add("late_checkout", "info",
-            f"Выезд из отеля в {hotels_db.CHECK_OUT_TIME:%H:%M}, а ехать {place} около {leave:%H:%M}: "
+            f"Выезд из отеля в {check_out_time(hotel):%H:%M}, а ехать {place} около {leave:%H:%M}: "
             f"можно запросить поздний выезд или оставить багаж.")
 
 
@@ -346,7 +346,7 @@ def itinerary(trip: TripState) -> list[dict]:
     hotel = HotelOption.model_validate(hotel_item_.snapshot)
     outbound, back = _flight(trip, "outbound"), _flight(trip, "return")
     transfer = next((c for c in trip.cart if c.kind == "transfer"), None)
-    minutes = transfer.snapshot.get("minutes") if transfer else hotels_db.transfer_minutes(hotel)
+    minutes = transfer.snapshot.get("minutes") if transfer else providers.transfers().transfer_minutes(hotel)
     codes = {i.code: i for i in trip.issues}
     weather = {d["date"]: d for d in (trip.weather or {}).get("days", [])}
     sea = ((trip.weather or {}).get("sea") or {}).get("t")
@@ -361,9 +361,9 @@ def itinerary(trip: TripState) -> list[dict]:
         if minutes:
             steps.append({"kind": "transfer", "at": arr.isoformat(), "title": "Трансфер в отель",
                           "detail": f"около {minutes} мин", "issues": []})
-    check_in = datetime.combine(hotel.check_in, hotels_db.CHECK_IN_TIME)
+    check_in = datetime.combine(hotel.check_in, check_in_time(hotel))
     steps.append({"kind": "checkin", "at": check_in.isoformat(), "title": f"Заселение: {hotel.name}",
-                  "detail": f"с {hotels_db.CHECK_IN_TIME:%H:%M}, {hotel.district}",
+                  "detail": f"с {check_in_time(hotel):%H:%M}, {hotel.district}",
                   "issues": issues(ARRIVAL_ISSUES + HOTEL_ISSUES)})
     day = hotel.check_in
     while day <= hotel.check_out:
@@ -375,9 +375,9 @@ def itinerary(trip: TripState) -> list[dict]:
             steps.append({"kind": "day", "at": datetime.combine(day, datetime.min.time()).isoformat(),
                           "title": f"{day:%d.%m}", "detail": detail, "issues": []})
         day += timedelta(days=1)
-    check_out = datetime.combine(hotel.check_out, hotels_db.CHECK_OUT_TIME)
+    check_out = datetime.combine(hotel.check_out, check_out_time(hotel))
     steps.append({"kind": "checkout", "at": check_out.isoformat(), "title": "Выезд из отеля",
-                  "detail": f"до {hotels_db.CHECK_OUT_TIME:%H:%M}", "issues": issues(DEPARTURE_ISSUES)})
+                  "detail": f"до {check_out_time(hotel):%H:%M}", "issues": issues(DEPARTURE_ISSUES)})
     if back:
         dep, arr = _local(back.depart_at), _local(back.arrive_at)
         steps.append(_leg_step(back, dep, arr))
@@ -495,7 +495,16 @@ def _local(moment: datetime) -> datetime:
     """Время в часовом поясе курорта, без tzinfo: так его сравниваем с часами заселения."""
     if moment.tzinfo is None:
         return moment
-    return moment.astimezone(hotels_db.LOCAL_TZ).replace(tzinfo=None)
+    return moment.astimezone(HERE.tz).replace(tzinfo=None)
+
+
+def check_in_time(hotel: HotelOption) -> time:
+    """Заселение: часы объекта, а если источник их не дал — типовые для локации."""
+    return hotel.check_in_time or HERE.check_in
+
+
+def check_out_time(hotel: HotelOption) -> time:
+    return hotel.check_out_time or HERE.check_out
 
 
 def _rub(value: int | None) -> str:

@@ -25,13 +25,11 @@ from langgraph.store.sqlite import SqliteStore
 from langgraph.types import Command
 from typing_extensions import NotRequired
 
-from . import memory, orders
-from .adapters import hotels as hotels_db
+from . import memory, providers
 from .adapters import photos
-from .adapters.aviasales import SourceUnavailable
 from .config import (AGENT_RECURSION_LIMIT, DATA_DIR, LLM_API_KEY, LLM_FALLBACK_MODELS, LLM_MODEL,
                      STRUCTURED_REPLY, make_llm)
-from .contracts import AgentReply, AgentResponse, Block, TripState
+from .contracts import AgentReply, AgentResponse, Block, SourceUnavailable, TripState
 from .guardrails import default_guards, inspect_text
 from .observability import LoggingMiddleware
 from .prompts import system_prompt
@@ -592,7 +590,7 @@ def forget_memory(user_id: str) -> None:
 
 def hotel_photo(hotel_id: str) -> dict | None:
     """Фото отеля для карточки: {"path", "source", "credit", "page"} или None."""
-    hotel = hotels_db.get(hotel_id)
+    hotel = providers.hotels().get(hotel_id)
     if hotel is None:
         return None
     entry = photos.photo(hotel)
@@ -666,9 +664,9 @@ def change_account_cart(session_id: str, version: int, pay: bool, user_id: str) 
                 i.message for i in trip.issues if i.severity == "blocker"))
         change = trip.order_change or {}
         replaced = change.get("order_id") if pay and change.get("mode") == "replace" else None
-        order = orders.create(session_id, trip.version, trip.cart, trip.cart_total_rub) if pay else None
+        order = providers.orders().create(session_id, trip.version, trip.cart, trip.cart_total_rub) if pay else None
         if replaced:
-            orders.cancel(replaced)
+            providers.orders().cancel(replaced)
         ops = ([{"op": "order", "order_id": order.id, "cancelled": replaced}] if order else
                [{"op": "cart_remove", "option_id": c.option_id} for c in trip.cart])
         text = (f"Заказ {order.id} оформлен из корзины профиля. Оплата демонстрационная, деньги не списаны."
