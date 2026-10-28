@@ -248,27 +248,60 @@ function setChatBusy(busy) {
   document.querySelectorAll('.suggestions .chip, .choose-hotel, .choose-package, .flex-button').forEach((button) => { button.disabled = !activeChatId || busy; });
 }
 
-function setChatsOpen(open) {
-  document.body.classList.toggle('chats-open', open);
+const mobileChatsQuery = matchMedia('(max-width: 650px)');
+const drawerQuery = matchMedia('(max-width: 1199px)');
+const tripPanel = document.querySelector('#trip-panel');
+
+function syncChatsToggle() {
+  const open = mobileChatsQuery.matches
+    ? document.body.classList.contains('chats-open')
+    : !document.body.classList.contains('chats-collapsed');
   chatsToggle.setAttribute('aria-expanded', String(open));
   chatsToggle.setAttribute('aria-label', open ? 'Скрыть чаты' : 'Показать чаты');
+  chatsToggle.title = open ? 'Скрыть чаты' : 'Показать чаты';
 }
-chatsToggle.addEventListener('click', () => setChatsOpen(!document.body.classList.contains('chats-open')));
 
-// На широком экране поездка — третья колонка, уже — выезжающая панель
-const drawerQuery = matchMedia('(max-width: 1199px)');
+function setChatsOpen(open) {
+  if (mobileChatsQuery.matches) document.body.classList.toggle('chats-open', open);
+  else document.body.classList.toggle('chats-collapsed', !open);
+  syncChatsToggle();
+}
+chatsToggle.addEventListener('click', () => setChatsOpen(chatsToggle.getAttribute('aria-expanded') !== 'true'));
+mobileChatsQuery.addEventListener('change', () => {
+  document.body.classList.remove('chats-open');
+  syncChatsToggle();
+});
+
+// На широком экране поездка занимает колонку, на узком открывается поверх чата.
+function syncTripToggle() {
+  const open = drawerQuery.matches
+    ? document.body.classList.contains('trip-open')
+    : !document.body.classList.contains('trip-collapsed');
+  tripBackdrop.hidden = !(open && drawerQuery.matches);
+  tripPanel.inert = !open;
+  tripToggle.hidden = open;
+  tripToggle.setAttribute('aria-expanded', String(open));
+  tripToggle.setAttribute('aria-label', open ? 'Скрыть поездку' : 'Показать поездку');
+  tripToggle.title = open ? 'Скрыть поездку' : 'Показать поездку';
+}
 
 function setTripOpen(open) {
   const drawer = drawerQuery.matches;
-  document.body.classList.toggle('trip-open', open && drawer);
-  tripBackdrop.hidden = !(open && drawer);
-  tripToggle.setAttribute('aria-expanded', String(open && drawer));
-  if (open && drawer) tripClose.focus();
+  const focusClose = open && (drawer || document.activeElement === tripToggle);
+  if (drawer) document.body.classList.toggle('trip-open', open);
+  else document.body.classList.toggle('trip-collapsed', !open);
+  syncTripToggle();
+  if (focusClose) tripClose.focus();
 }
-tripToggle.addEventListener('click', () => setTripOpen(!document.body.classList.contains('trip-open')));
+tripToggle.addEventListener('click', () => setTripOpen(tripToggle.getAttribute('aria-expanded') !== 'true'));
 tripClose.addEventListener('click', () => { setTripOpen(false); tripToggle.focus(); });
 tripBackdrop.addEventListener('click', () => setTripOpen(false));
-drawerQuery.addEventListener('change', () => setTripOpen(false));
+drawerQuery.addEventListener('change', () => {
+  document.body.classList.remove('trip-open');
+  syncTripToggle();
+});
+syncChatsToggle();
+syncTripToggle();
 
 function showChatError(error) {
   chatError.textContent = error.message;
@@ -985,7 +1018,7 @@ function displayChat(data) {
   if (data.trip?.confirm) showConfirm((card) => chatMessages.append(card), data.trip.confirm);
   scrollChat();
   renderChatList();
-  setChatsOpen(false);
+  if (mobileChatsQuery.matches) setChatsOpen(false);
 }
 
 async function loadUserChats(userId) {
@@ -1027,7 +1060,7 @@ async function loadUserChats(userId) {
 async function selectChat(id) {
   if (chatBusy) return;
   if (id === activeChatId) {
-    setChatsOpen(false);
+    if (mobileChatsQuery.matches) setChatsOpen(false);
     return;
   }
   const epoch = accountEpoch;
@@ -1215,8 +1248,8 @@ form.addEventListener('submit', async (event) => {
 document.addEventListener('keydown', (event) => {
   if (document.querySelector('dialog[open]')) return;
   if (event.key === 'Escape') {
-    setChatsOpen(false);
-    setTripOpen(false);
+    if (mobileChatsQuery.matches) setChatsOpen(false);
+    if (drawerQuery.matches) setTripOpen(false);
   }
   if (event.key !== 'Escape' || accountPanel.hidden) return;
   if (!loginView.hidden) setLoginMode(false);
@@ -1382,7 +1415,7 @@ async function purchaseAction(cart, pay) {
 
 function openBasket() {
   setPanelOpen(false);
-  setTripOpen(false);
+  if (drawerQuery.matches) setTripOpen(false);
   setBasketActionMessage('');
   paintPurchases();
   basketDialog.showModal();
