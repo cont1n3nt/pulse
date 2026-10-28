@@ -29,6 +29,7 @@ MAX_INPUT_CHARS = 2000
 
 REFUSAL = ("Я помогаю только с подбором отелей и поездок. "
            "Расскажите, когда и с кем хотите поехать, и я подберу варианты.")
+TOO_LONG = f"Сообщение слишком длинное: уложитесь в {MAX_INPUT_CHARS} символов, главное — куда, когда и с кем."
 BLOCKED_PLACEHOLDER = "[сообщение отклонено фильтром безопасности]"
 
 # визуально похожие буквы: кириллица -> латиница и обратно (против «ignоre» с русской «о»)
@@ -91,7 +92,8 @@ class InputGuardMiddleware(AgentMiddleware):
             return None
         log.warning("Сообщение отклонено фильтром: category=%s, длина=%d", category, len(text))
         return {
-            "messages": [HumanMessage(content=BLOCKED_PLACEHOLDER, id=message.id), AIMessage(content=REFUSAL)],
+            "messages": [HumanMessage(content=BLOCKED_PLACEHOLDER, id=message.id),
+                         AIMessage(content=TOO_LONG if category == "too_long" else REFUSAL)],
             "jump_to": "end",
         }
 

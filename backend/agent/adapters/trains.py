@@ -165,10 +165,9 @@ def station_transfer(hotel: HotelOption, station: str, km: float, guests: int = 
     else:
         road_km = round(km * ROAD_FACTOR, 1)
         minutes = round(road_km / hotels_db.TRANSFER_SPEED_KMH * 60) + EXIT_MIN
-    minivan = guests >= hotels_db.MINIVAN_FROM_GUESTS
-    one_way = (hotels_db.TAXI_BASE_RUB + hotels_db.TAXI_PER_KM_RUB * road_km) * (hotels_db.MINIVAN_FACTOR if minivan else 1)
-    return TransferOption(hotel_id=hotel.id, minutes=minutes, km=road_km, price_rub=round(one_way / 50) * 50 * 2,
-                          car="minivan" if minivan else "standard", start=f"вокзал {station}")
+    price, car = hotels_db.taxi_fare(road_km, guests)
+    return TransferOption(hotel_id=hotel.id, minutes=minutes, km=road_km, price_rub=price, car=car,
+                          start=f"вокзал {station}")
 
 
 def _km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

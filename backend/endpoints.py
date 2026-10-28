@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.agent import (account_cart, change_account_cart, forget_memory, get_memory, get_order,
+from backend.agent import (MAX_INPUT_CHARS, account_cart, change_account_cart, forget_memory, get_memory, get_order,
                            hotel_photo, resume_checkout, stream_message, trip_view)
 from backend.agent.service import update_memory
 from backend.agent.memory import MAX_TEXT
@@ -32,7 +32,7 @@ class LoginRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=100)
-    message: str = Field(min_length=1, max_length=5000)
+    message: str = Field(min_length=1, max_length=MAX_INPUT_CHARS)
 
 
 class CheckoutDecision(BaseModel):
