@@ -305,13 +305,16 @@ async function api(path, options = {}) {
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
     const response = await fetch(path, { credentials: 'same-origin', ...options, signal: controller.signal });
-    const data = await response.json();
     if (!response.ok) {
+      const data = await response.json().catch((err) => {
+        if (controller.signal.aborted) throw err;
+        return {};
+      });  // 500 от прокси или сервера — не JSON
       const error = new Error(data.detail || 'Не удалось выполнить запрос');
       error.status = response.status;
       throw error;
     }
-    return data;
+    return await response.json();
   } catch (error) {
     if (controller.signal.aborted) {
       error = new Error('Сервер долго не отвечает. Попробуйте ещё раз.');
@@ -415,20 +418,19 @@ function renderChatList() {
     button.type = 'button';
     button.className = `trip${item.id === activeChatId ? ' active' : ''}`;
     button.setAttribute('aria-current', item.id === activeChatId ? 'true' : 'false');
-    button.textContent = item.title;
-    const date = document.createElement('small');
-    if (streams.has(item.id)) {
-      date.textContent = 'Агент отвечает…';
-      date.className = 'thinking';
-    } else {
-      date.textContent = new Date(item.updated_at).toLocaleDateString('ru-RU');
-    }
-    button.append(date);
+    button.append(
+      el('span', 'chat-name', item.title),
+      streams.has(item.id)
+        ? el('small', 'thinking', 'Агент отвечает…')
+        : el('small', '', new Date(item.updated_at).toLocaleDateString('ru-RU')),
+    );
+    button.title = item.title;
     button.disabled = chatBusy;
     button.addEventListener('click', () => selectChat(item.id));
     const row = el('div', 'chat-list-row');
     const remove = el('button', 'delete-chat', '×');
     remove.type = 'button';
+    remove.dataset.chat = item.id;
     remove.title = 'Удалить чат';
     remove.setAttribute('aria-label', `Удалить чат «${item.title}»`);
     remove.disabled = chatBusy;
@@ -823,7 +825,7 @@ function scrollChat() {
 }
 
 function addChatMessage(role, text) {
-  if (role === 'bot') chatMessages.append(el('div', 'bot-label', '≋ ТИХО'));
+  if (role === 'bot') chatMessages.append(el('div', 'bot-label', '≋ PULSE'));
   const bubble = el('div', `bubble ${role}`, text);
   chatEmpty.hidden = true;
   chatMessages.append(bubble);
@@ -834,7 +836,7 @@ function addChatMessage(role, text) {
 // Ответ агента: статус работы, текст по мере генерации и карточки под ним
 function addBotReply() {
   chatEmpty.hidden = true;
-  const label = el('div', 'bot-label', '≋ ТИХО');
+  const label = el('div', 'bot-label', '≋ PULSE');
   const status = el('div', 'reasoning');
   status.append(el('span', 'spinner'), el('span', 'status-text', 'Думаю…'));
   const bubble = el('div', 'bubble bot');
@@ -1020,12 +1022,17 @@ function handleEvent(reply, event) {
   } else if (event.type === 'confirm') {
     showConfirm((card) => reply.addCard(card), event);
   } else if (event.type === 'chat') {
-    chats = [event.chat, ...chats.filter((item) => item.id !== event.chat.id)];
-    if (event.chat.id === activeChatId) chatTitle.textContent = event.chat.title;
-    renderChatList();
+    updateChat(event.chat);
   } else if (event.type === 'error') {
     throw new Error(event.detail);
   }
+}
+
+// Название и дата чата пришли с сервера: обновляем список, даже если этот чат сейчас не открыт
+function updateChat(chat) {
+  chats = [chat, ...chats.filter((item) => item.id !== chat.id)];
+  if (chat.id === activeChatId) chatTitle.textContent = chat.title;
+  renderChatList();
 }
 
 // Один ход агента: запрос, поток SSE, текст и карточки в чате.
@@ -1062,13 +1069,17 @@ async function streamAgent(url, payload) {
     });
     resetTimeout();
     if (!response.ok) {
-      const data = await response.json();
+      const data = await response.json().catch((err) => {
+        if (stream.controller.signal.aborted) throw err;
+        return {};
+      });
       throw new Error(data.detail || 'Не удалось отправить сообщение');
     }
     await readEvents(response, (event) => {
       if (epoch !== accountEpoch || stream.controller.signal.aborted) return;
       // название и дата чата в списке обновляются, даже если открыт другой чат
-      if (isCurrent() || event.type === 'chat') handleEvent(reply, event);
+      if (event.type === 'chat') updateChat(event.chat);
+      else if (isCurrent() || event.type === 'error') handleEvent(reply, event);
     }, resetTimeout);
   } catch (error) {
     if (stream.controller.signal.aborted) error = new Error(stream.timedOut
@@ -1309,7 +1320,6 @@ async function loadLocation() {
     const place = await api('/api/location');
     locationCity = place.city;
     if (!place.examples.length) return;
-    const checkout = defaultSuggestions.find((chip) => chip.dataset.prompt === 'Оформляй');
     const chips = place.examples.map(({ label, prompt }) => {
       const chip = el('button', 'chip', label);
       chip.type = 'button';
@@ -1318,7 +1328,7 @@ async function loadLocation() {
       return chip;
     });
     const showingDefaults = suggestionsBox.firstElementChild === defaultSuggestions[0];
-    defaultSuggestions.splice(0, defaultSuggestions.length, ...chips, ...(checkout ? [checkout] : []));
+    defaultSuggestions.splice(0, defaultSuggestions.length, ...chips);
     if (showingDefaults) suggestionsBox.replaceChildren(...defaultSuggestions);
     chatEmpty.textContent = 'Опишите поездку своими словами: откуда, когда, с кем и на какой бюджет. '
       + `Я соберу дорогу${place.trains ? ' (самолёт или поезд)' : ''}, трансфер и отель ${place.title === place.city ? '' : `(${place.title}) `}`

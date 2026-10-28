@@ -7,14 +7,14 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from backend.agent.config import DATA_DIR
+from backend.agent.config import DATA_DIR, LLM_API_KEY
 from backend.auth import AuthState
 from backend.database import make_session_factory
 from backend.endpoints import router
 from backend import models  # noqa: F401 - register model before create_all
 
 
-load_dotenv(Path(__file__).resolve().parent.parent / "..env")
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logging.basicConfig(level=(os.getenv("LOG_LEVEL") or "INFO").upper(),
                     format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
@@ -54,3 +54,7 @@ def create_app(database_url: str | None = None, secret_key: str | None = None) -
 
 
 app = create_app()
+if not LLM_API_KEY:
+    logging.getLogger("pulse").warning(
+        "LLM_API_KEY не задан: интерфейс откроется, но агент отвечать не будет. "
+        "Расшифруйте secrets.env.age в .env или впишите ключ и перезапустите сервис.")
