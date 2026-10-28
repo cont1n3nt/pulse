@@ -7,8 +7,10 @@ from pydantic import BaseModel, Field
 
 
 class FlightOption(BaseModel):
+    """Переезд в одну сторону: самолёт или поезд (тогда from_airport/to_airport — город и станция)."""
     id: str
-    source: Literal["aviasales", "yandex_rasp", "seed"]
+    source: Literal["aviasales", "yandex_rasp", "rail_demo", "seed"]
+    mode: Literal["plane", "train"] = "plane"
     carrier_code: str
     carrier_name: str
     number: str
@@ -19,6 +21,8 @@ class FlightOption(BaseModel):
     duration_min: int
     transfers: int
     price_rub: int | None = None
+    price_is_demo: bool = False  # поезд из Яндекс Расписаний без цены в API: цена купе — демо
+    title: str | None = None  # маршрут поезда, например «Москва — Адлер»
     baggage_included: bool | None = None
     link: str | None = None
 
@@ -63,8 +67,9 @@ class HotelOption(BaseModel):
 
 
 class TransferOption(BaseModel):
-    """Такси аэропорт ⇄ отель, туда и обратно. Время — по дорогам OSM, цена — демо-тариф."""
+    """Такси аэропорт (или вокзал) ⇄ отель, туда и обратно. Время — по дорогам OSM, цена — демо-тариф."""
     hotel_id: str
+    start: str = "аэропорт"  # откуда такси: «аэропорт» или «вокзал Сочи»
     minutes: int  # в одну сторону, с выходом из аэропорта и запасом на пробки
     km: float | None = None
     trips: int = 2
@@ -101,6 +106,7 @@ class Requirements(BaseModel):
     must_have: list[str] = Field(default_factory=list)
     near_sea: bool = False
     origin_code: str | None = None
+    transport: Literal["plane", "train"] | None = None  # None — самолёт, если пользователь не просил поезд
     notes: list[str] = Field(default_factory=list)
 
     @property

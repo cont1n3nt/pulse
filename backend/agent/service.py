@@ -404,6 +404,59 @@ class _ContentStream:
         return self.text[message_id][sent:limit]
 
 
+# --- последняя чистка текста -----------------------------------------------------------------
+#
+# Промпт запрещает разметку и внутренние id, но модели всё равно иногда пишут **Эконом** или
+# «пакет optimum». Чат показывает текст как есть, поэтому чистим поток кодом, по целым словам.
+
+_LABELS = {"economy": "Эконом", "optimum": "Оптимум", "comfort": "Комфорт"}
+_TIDY = [
+    (re.compile(r"\*\*|__"), ""),
+    (re.compile(r"(?<=\n)#{1,3} "), ""),
+    (re.compile(r"(?<=\n)[ \t]*[-*•] "), "— "),
+    (re.compile(r"\b(" + "|".join(_LABELS) + r")\b"), lambda m: _LABELS[m.group(1)]),
+]
+
+
+class _Tidy:
+    """Пропускает текст по целым словам, чтобы правила видели «**Эконом**» и «optimum» целиком."""
+
+    def __init__(self):
+        self.pending = ""
+        self.last = "\n"  # начало ответа — тоже начало строки
+
+    def feed(self, token: str) -> str:
+        self.pending += token
+        cut = max(self.pending.rfind(" "), self.pending.rfind("\n")) + 1
+        return self._emit(cut)
+
+    def flush(self) -> str:
+        return self._emit(len(self.pending))
+
+    def _emit(self, cut: int) -> str:
+        if cut <= 0:
+            return ""
+        text, self.pending = self.last + self.pending[:cut], self.pending[cut:]
+        for pattern, repl in _TIDY:
+            text = pattern.sub(repl, text)
+        text, self.last = text[1:], text[-1]
+        return text
+
+
+def _tidy_tokens(events):
+    tidy = _Tidy()
+    for event in events:
+        if event.get("type") == "token":
+            if text := tidy.feed(event["text"]):
+                yield {"type": "token", "text": text}
+            continue
+        if text := tidy.flush():
+            yield {"type": "token", "text": text}
+        yield event
+    if text := tidy.flush():
+        yield {"type": "token", "text": text}
+
+
 def _run(session_id: str, payload, user_id: str | None = None):
     """Прогон графа как поток событий SSE: reasoning -> (token | block | tool)* -> confirm? -> done."""
     config = _config(session_id, user_id)
@@ -455,7 +508,7 @@ def _guarded(session_id: str, events):
     log.info("Ход агента: чат %s", session_id)
     try:
         with _session_lock(session_id):
-            yield from events()
+            yield from _tidy_tokens(events())
     except Exception:
         log.exception("Агент упал на сессии %s через %.1f с", session_id, time.perf_counter() - started)
         yield {"type": "error", "detail": FAILED}

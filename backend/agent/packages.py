@@ -1,4 +1,4 @@
-"""Пакеты поездки: перелёт туда и обратно + трансфер + отель, с одной итоговой суммой.
+"""Пакеты поездки: перелёт (или поезд) туда и обратно + трансфер + отель, с одной итоговой суммой.
 
 Модуль не зависит от LangChain и не ходит в сеть сам: перелёты и календарь цен ему передают.
 Пакеты собирает код, а не модель: модель только объясняет выбор, поэтому суммы всегда сходятся.
@@ -11,6 +11,7 @@
 from datetime import date, timedelta
 
 from .adapters import hotels as hotels_db
+from .adapters import trains
 from .contracts import CartItem, FlightOption, HotelOption, Package, Requirements, TripState
 from .trip import _local, _rub, flight_item, hotel_item, refresh, transfer_item
 
@@ -49,9 +50,14 @@ def items(pkg: Package) -> list[CartItem]:
     return out
 
 
-def _package(tier: str, hotel: HotelOption, req: Requirements, outbound, back) -> Package:
+def _package(tier: str, hotel: HotelOption, req: Requirements, outbound, back, rail_from: str | None) -> Package:
     guests = max(req.guests, 1)
-    transfer = hotels_db.transfer(hotel, guests)
+    by_rail = trains.for_hotel(rail_from, req.check_in, req.check_out, hotel, guests) if rail_from else None
+    if by_rail:
+        # поездом выходят на станции у отеля: своё время прибытия и такси от вокзала
+        outbound, back, transfer = by_rail
+    else:
+        transfer = hotels_db.transfer(hotel, guests)
     flights = flights_cost(outbound, back, guests)
     total = hotel.total_price_rub + (flights or 0) + (transfer.price_rub if transfer else 0)
     return Package(
@@ -63,11 +69,14 @@ def _package(tier: str, hotel: HotelOption, req: Requirements, outbound, back) -
 
 
 def build(req: Requirements, ranked: list[HotelOption], outbound: FlightOption | None,
-          back: FlightOption | None) -> list[Package]:
-    """Три пакета из отелей, отсортированных по ранжированию поиска."""
+          back: FlightOption | None, rail_from: str | None = None) -> list[Package]:
+    """Три пакета из отелей, отсортированных по ранжированию поиска.
+
+    rail_from — код города: тогда вместо перелётов поезда до станции у каждого отеля.
+    """
     if not ranked:
         return []
-    all_options = [_package("optimum", h, req, outbound, back) for h in ranked]
+    all_options = [_package("optimum", h, req, outbound, back, rail_from) for h in ranked]
     pool = [p for p in all_options if p.within_budget is not False]
     if not pool:
         # в бюджет не влезает ничего: показываем самые дешёвые и честно помечаем
@@ -154,7 +163,7 @@ def sea_text(hotel: HotelOption) -> str:
 def highlights(hotel: HotelOption, transfer) -> list[str]:
     out = [f"{title(hotel)}, {hotel.district}", sea_text(hotel)]
     if transfer:
-        out.append(f"из аэропорта около {transfer.minutes} мин")
+        out.append(f"{_from(transfer)} около {transfer.minutes} мин")
     if hotel.meal:
         out.append(MEALS[hotel.meal])
     if hotel.free_cancellation:
@@ -179,7 +188,7 @@ def tradeoffs(pkg: Package, base: Package) -> list[str]:
     elif (a.distance_to_sea_m is None) != (b.distance_to_sea_m is None):
         facts.append("в горах, а не у моря" if a.distance_to_sea_m is None else f"у моря ({sea_text(a)}), а не в горах")
     if pkg.transfer and base.transfer and abs(pkg.transfer.minutes - base.transfer.minutes) >= TRANSFER_DIFF_MIN:
-        facts.append(f"дорога из аэропорта {pkg.transfer.minutes} мин вместо {base.transfer.minutes}")
+        facts.append(f"дорога {_from(pkg.transfer)} {pkg.transfer.minutes} мин вместо {base.transfer.minutes}")
     if a.meal != b.meal and a.meal and b.meal:
         facts.append(f"{MEALS[a.meal]} вместо «{MEALS[b.meal]}»")
     if a.free_cancellation != b.free_cancellation:
@@ -189,15 +198,22 @@ def tradeoffs(pkg: Package, base: Package) -> list[str]:
     return [head + (": " + "; ".join(facts) if facts else "")]
 
 
+def _from(transfer) -> str:
+    return "из аэропорта" if transfer.start == "аэропорт" else "от " + transfer.start.replace("вокзал", "вокзала")
+
+
 def describe(packages: list[Package]) -> str:
     lines = []
     for p in packages:
         flights = ""
         if p.outbound or p.back:
-            legs = [f"{x.carrier_name} {_local(x.depart_at):%d.%m %H:%M}→{_local(x.arrive_at):%H:%M}"
-                    for x in (p.outbound, p.back) if x]
-            flights = f" Перелёты: {'; '.join(legs)}, {_rub(p.flights_rub)} за всех."
-        transfer = f" Трансфер: {p.transfer.minutes} мин, {_rub(p.transfer.price_rub)} туда-обратно." if p.transfer else ""
+            legs = [f"{x.carrier_name} {x.from_airport}→{x.to_airport} {_local(x.depart_at):%d.%m %H:%M}→"
+                    f"{_local(x.arrive_at):%d.%m %H:%M}" for x in (p.outbound, p.back) if x]
+            first = p.outbound or p.back
+            kind = f"Поезда (купе, {trains.source_note(first)})" if first.mode == "train" else "Перелёты"
+            flights = f" {kind}: {'; '.join(legs)}, {_rub(p.flights_rub)} за всех."
+        transfer = (f" Трансфер {_from(p.transfer)}: {p.transfer.minutes} мин, {_rub(p.transfer.price_rub)} туда-обратно."
+                    if p.transfer else "")
         budget = "" if p.within_budget is not False else " Не укладывается в бюджет."
         line = (f"[{p.id}] {p.label}: {p.hotel.name} ({', '.join(p.highlights)}), отель {_rub(p.hotel.total_price_rub)}."
                 f"{flights}{transfer} Итого {_rub(p.total_rub)}, на человека {_rub(p.per_person_rub)}.{budget}")

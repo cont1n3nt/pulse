@@ -18,7 +18,9 @@ LLM_FALLBACK_MODELS = [m.strip() for m in os.getenv("LLM_FALLBACK_MODELS", "").s
 STRUCTURED_REPLY = os.getenv("STRUCTURED_REPLY", "1") not in ("0", "false", "no")
 
 TRAVELPAYOUTS_TOKEN = os.getenv("TRAVELPAYOUTS_TOKEN", "")
-HTTP_TIMEOUT = float(os.getenv("HTTP_TIMEOUT", "20"))
+# Яндекс Расписания: настоящее расписание поездов. Без ключа — демо-расписание
+YANDEX_RASP_KEY = os.getenv("YANDEX_RASP_KEY", "")
+HTTP_TIMEOUT =float(os.getenv("HTTP_TIMEOUT", "20"))
 # Максимум шагов графа за один запрос: аварийный предохранитель. Один цикл «модель → инструмент»
 # занимает 3–4 шага (модель, инструменты, узлы middleware); основной лимит — 10 вызовов модели
 # в guardrails.py, он завершает ход корректно. Этот должен быть с запасом выше.

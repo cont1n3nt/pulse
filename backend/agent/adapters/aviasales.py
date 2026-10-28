@@ -13,6 +13,7 @@ import requests
 from ..config import HTTP_TIMEOUT, TRAVELPAYOUTS_TOKEN
 from ..contracts import FlightOption
 from ..reference import airlines
+from .hotels import LOCAL_TZ
 
 log = logging.getLogger(__name__)
 
@@ -83,12 +84,21 @@ def month_prices(origin: str, destination: str, month: str) -> dict[date, Flight
     return {date.fromisoformat(day): to_flight(raw) for day, raw in data.items()}
 
 
-def cheapest_on(origin: str, destination: str, day: date) -> FlightOption | None:
-    """Самый дешёвый билет на дату: сначала поиск по дате, затем календарь месяца."""
-    found = fetch_flights(origin, destination, day.isoformat(), limit=1)
-    if found:
-        return found[0]
+def cheapest_on(origin: str, destination: str, day: date, arrive_by: date | None = None) -> FlightOption | None:
+    """Самый дешёвый билет на дату: сначала поиск по дате, затем календарь месяца.
+
+    arrive_by: дата заезда. Ночной рейс с прилётом на следующий день сжёг бы оплаченную ночь,
+    поэтому сначала ищем среди тех, что прилетают вовремя, и только без них берём самый дешёвый.
+    """
+    found = fetch_flights(origin, destination, day.isoformat(), limit=10 if arrive_by else 1)
+    on_time = [f for f in found if arrive_by is None or _local_day(f.arrive_at) <= arrive_by]
+    if on_time or found:
+        return (on_time or found)[0]
     return month_prices(origin, destination, f"{day:%Y-%m}").get(day)
+
+
+def _local_day(moment: datetime) -> date:
+    return (moment.astimezone(LOCAL_TZ) if moment.tzinfo else moment).date()
 
 
 def prices_around(origin: str, destination: str, day: date, days: int) -> dict[date, FlightOption]:
