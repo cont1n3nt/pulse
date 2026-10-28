@@ -13,6 +13,7 @@ ID чата служит `session_id` агента.
 | `GET /api/chats/{id}` | история чата + `trip`: пакеты, погода, выдача, корзина с маршрутом, заказы, ожидающее подтверждение |
 | `GET /api/orders/{id}` | заказ (`Order`) |
 | `GET /api/memory`, `DELETE /api/memory` | что агент помнит о пользователе между чатами; стереть |
+| `GET /api/location` | локация агента: название, районы, есть ли поезда, подсказки для пустого чата |
 | `GET /api/hotels/{id}/photo` | фото отеля (сайт отеля или Wikimedia Commons), 404 — фото нет; источник и подпись в заголовках `X-Photo-*` |
 
 ```python
@@ -24,8 +25,8 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 Бэк добавляет к потоку событие `chat` (обновлённые название и дата чата) перед `done`.
 
 Роуты объявлять через `def`, не `async def`: агент синхронный, FastAPI сам вынесет его в пул потоков.
-Для CLI и синхронного API есть `handle_message(session_id, text) -> AgentResponse`: тот же поток, собранный в один ответ
-(пример — `docs/cli.py`).
+Для синхронного API и прогонов сценариев есть `handle_message(session_id, text) -> AgentResponse`: тот же поток,
+собранный в один ответ (пример — `evals/run.py`).
 
 ### События потока
 
@@ -35,7 +36,7 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 | `tool` | `name` | инструмент отработал |
 | `block` | `block`, данные | карточки: `packages` (`items`, `flex`, `weather`), `hotels`/`flights` (`items`), `cart` (`items`, `total_rub`, `issues`, `itinerary`), `order` (`order`), `reply` (`recommendation`, `suggestions`) — в конце хода |
 | `token` | `text` | кусок ответа модели (из поля `text` структурного ответа `AgentReply`, по мере генерации) |
-| `confirm` | `action: "checkout"`, `items`, `total_rub`, `issues` | агент ждёт подтверждения оплаты кнопкой |
+| `confirm` | `action: "checkout"`, `items`, `total_rub`, `issues`, `replaces`, `extends` | агент ждёт подтверждения оплаты кнопкой; `replaces` — номер заказа, который заменит перенос, `extends` — к которому добавляется трансфер |
 | `error` | `detail` | сбой; стек пишется только в лог сервера |
 | `done` | — | ход закончен |
 
@@ -70,8 +71,8 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 | `over_budget` | warning | итог (отель + билеты на всех гостей) больше бюджета |
 | `capacity_unknown`, `flight_price_unknown` | info | данных нет, честно говорим об этом |
 
-Время сравнивается в часовом поясе курорта; параметры локации (часы заселения, аэропорт, скорость трансфера) — в
-`adapters/hotels.py`.
+Время сравнивается в часовом поясе курорта; параметры локации (часы заселения, аэропорт, тариф и скорость такси) —
+в `backend/seed/<локация>/location.json`.
 
 ## Оформление заказа
 
@@ -81,6 +82,16 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
    заново с начала (поэтому до `interrupt()` у него нет побочных эффектов).
 4. При подтверждении `orders.create` пишет заказ в `backend/data/orders.db`. Повторное подтверждение той же версии корзины
    возвращает тот же заказ. Оплата имитируется (`payment: "simulated"`).
+
+## После покупки
+
+`tools/aftersale.py` над чистым модулем `aftersale.py`:
+
+- `change_order_dates` — тот же отель, та же дорога (рейсы на новые даты из Aviasales или поезда) и трансфер
+  кладутся в корзину операцией `cart_set` с `order_change = {order_id, mode: "replace"}`. Проверка поездки та же.
+  После оплаты `checkout` отменяет старый заказ (`orders.cancel`), операция `order` записывает его в `cancelled_orders`.
+- `add_order_transfer` — трансфер к купленному отелю (от вокзала, если в заказе поезд) отдельным заказом,
+  `mode: "extend"`: проверка не требует отеля в корзине.
 
 Если вместо кнопки пользователь пишет новое сообщение, это отказ от оплаты: текст уходит модели вместе с отказом
 (после проверки входным фильтром).
@@ -100,15 +111,16 @@ backend/
     memory.py      долговременная память о пользователе (хранилище LangGraph)
     orders.py      заказы в SQLite с защитой от повторного создания
     config.py      env + make_llm (OpenAI-совместимый)
-    prompts.py     системный промпт
+    prompts.py     системный промпт, собирается из локации
+    location.py    локация: районы, аэропорт, вокзалы, море, сезонность (backend/seed/<id>/location.json)
+    aftersale.py   перенос заказа и трансфер к купленному отелю (без LangChain)
     guardrails.py  фильтр входа, лимиты вызовов, очистка внешних данных
     reference.py   справочники городов/авиакомпаний → backend/seed/
     adapters/      сырой источник → стандартные модели (по файлу на источник)
     tools/         инструменты агента; _state.py — общее для работы с состоянием
-docs/
-  cli.py           терминал — тот же агент, подтверждение оплаты через y/n
 evals/             сценарии на настоящей модели и отчёты прогонов
-scripts/           выгрузка отелей Сочи из OpenStreetMap в seed
+tests/             юнит-тесты детерминированного ядра (без сети и модели)
+scripts/           выгрузка отелей локации из OpenStreetMap в seed: fetch_osm.py <локация>
 ```
 
 ## Как добавить новый источник (например, трансферы)
@@ -125,7 +137,7 @@ scripts/           выгрузка отелей Сочи из OpenStreetMap в 
 ```
 uv sync
 cp .env.example .env    # вписать ключи (LLM_API_KEY, TRAVELPAYOUTS_TOKEN)
-uv run python -m docs.cli
+uv run pytest                # юнит-тесты, без ключей
 uv run python -m evals.run   # сценарии на настоящей модели
 ```
 

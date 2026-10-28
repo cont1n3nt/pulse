@@ -20,6 +20,8 @@ from pathlib import Path
 
 from backend.agent import forget_memory, get_memory, handle_message, reset_session
 from backend.agent.service import collect, resume_checkout
+from backend.agent.config import LLM_BASE_URL, LLM_MODEL
+from backend.agent.location import HERE
 
 from . import metrics
 from .scenarios import SCENARIOS, Run, Scenario
@@ -91,9 +93,10 @@ def main() -> None:
     for name, value in quality:
         print(f"  {name}: {value}")
     RESULTS.mkdir(exist_ok=True)
-    (RESULTS / f"{stamp}.json").write_text(json.dumps({"summary": summary, "metrics": dict(quality), "runs": report},
+    (RESULTS / f"{stamp}.json").write_text(json.dumps({"model": LLM_MODEL, "location": HERE.id, "summary": summary, "metrics": dict(quality), "runs": report},
                                                       ensure_ascii=False, indent=1), encoding="utf-8")
-    lines = [f"# Прогон {stamp}", "", summary, "", "## Метрики качества", "", "| Метрика | Значение |", "|---|---|"]
+    lines = [f"# Прогон {stamp}", "", f"Модель: `{LLM_MODEL}` ({LLM_BASE_URL}), локация: `{HERE.id}`.", "", summary, "",
+             "## Метрики качества", "", "| Метрика | Значение |", "|---|---|"]
     lines += [f"| {name} | {value} |" for name, value in quality]
     lines += ["", "## Сценарии", "", "| Сценарий | Итог | Время | Уточнений | До варианта | Не прошло |",
               "|---|---|---|---|---|---|"]

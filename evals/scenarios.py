@@ -5,6 +5,8 @@
 но ловит поломки логики и промпта.
 
 Каждая проверка — (название, функция от Run) -> bool. Run собирает ответы всех ходов.
+Сценарии написаны для локации sochi (PULSE_LOCATION по умолчанию).
+Сценарии написаны для локации sochi (PULSE_LOCATION по умолчанию).
 """
 
 import re
@@ -173,6 +175,45 @@ def memory_fact(word):
     return lambda run: any(word in f.lower() for f in run.memory.get("facts", []))
 
 
+def no_search(run: Run) -> bool:
+    return not_called("plan_trip", "search_hotels", "search_flights")(run)
+
+
+def must_have(code):
+    return lambda run: code in run.state.requirements.must_have
+
+
+def cheaper_than_first(run: Run) -> bool:
+    """Просили дешевле: Оптимум второй выдачи дешевле Оптимума первой."""
+    def optimum(state):
+        return next((p.total_rub for p in state.packages if p.id == "optimum"), None)
+    first, last = optimum(run.responses[0].state), optimum(run.state)
+    return first is not None and last is not None and last < first
+
+
+def hotels_under(limit):
+    return lambda run: bool(run.state.hotels) and all(h.price_per_night_rub <= limit for h in run.state.hotels)
+
+
+def moved_order(days):
+    """Заказ перенесён: два заказа, первый отменён, отель второго сдвинут на days дней."""
+    def check(run: Run) -> bool:
+        state = run.state
+        if len(state.orders) != 2 or state.cancelled_orders != state.orders[:1]:
+            return False
+        before = next(r.state for r in run.responses if r.state.orders)  # состояние после первой покупки
+        first = before.requirements.check_in
+        return state.requirements.check_in == first + timedelta(days=days)
+    return check
+
+
+def transfer_ordered(run: Run) -> bool:
+    """Второй заказ — трансфер к первому, первый не отменён."""
+    orders = [b["order"] for b in run.blocks("order")]
+    return len(orders) == 2 and [i["kind"] for i in orders[1]["items"]] == ["transfer"] \
+        and not run.state.cancelled_orders
+
+
 SCENARIOS = [
     Scenario("family_may", "Семья на майские, город и праздник надо понять самому",
              ["Из Москвы в Сочи на майские, двое взрослых и ребёнок 6 лет, бюджет 150 тысяч"],
@@ -239,4 +280,54 @@ SCENARIOS = [
              ["Запомни, пожалуйста: мы всегда берём отели с завтраком"],
              [("ответ без ошибок", answered), ("вызван remember", called("remember")),
               ("факт в памяти", memory_fact("завтрак"))]),
+
+    # --- запросы, которых агент не видел при настройке промпта: другие места, желания не по сезону,
+    # бытовые формулировки, изменения после покупки
+    Scenario("warm_sea_november", "«Тёплое море в ноябре» — честно про воду",
+             ["Хочу тёплое море в ноябре, вдвоём на неделю из Москвы"],
+             [("ответ без ошибок", answered), ("назвал температуру", mentions("°", "градус")),
+              ("не обещал тёплое море", lambda run: "тёплое море" not in run.last.message.lower()
+               or "не" in run.last.message.lower()),
+              ("чистый текст", clean_text)]),
+    Scenario("spb_weekend", "Питер на выходные — другой город",
+             ["Питер на выходные, нас двое, что посоветуешь?"],
+             [("ответ без ошибок", answered), ("не искал в Питере", no_search),
+              ("предложил Сочи", mentions("Сочи")), ("чистый текст", clean_text)]),
+    Scenario("abroad", "Турция «всё включено» — другая страна",
+             ["Хочу в Турцию всё включено на неделю в июне"],
+             [("ответ без ошибок", answered), ("ничего не искал", no_search),
+              ("предложил Сочи", mentions("Сочи")), ("чистый текст", clean_text)]),
+    Scenario("dog", "С собакой: скрытое требование",
+             ["Из Москвы в Сочи с собакой на 5 ночей с 12 декабря, двое взрослых, до 100 тысяч"],
+             [("ответ без ошибок", answered), ("условие «с животными»", must_have("pets")),
+              ("собрана поездка", called("plan_trip")), ("не меньше двух пакетов", packages_ok),
+              ("чистый текст", clean_text)]),
+    Scenario("cheaper", "«Дороговато» — пересобрать дешевле",
+             ["Из Москвы в Сочи с 20 по 25 ноября, двое взрослых", "Дороговато, давай подешевле"],
+             [("ответ без ошибок", answered), ("пересобрал", lambda run: run.tools.count("plan_trip") >= 2),
+              ("Оптимум стал дешевле", cheaper_than_first), ("чистый текст", clean_text)]),
+    Scenario("per_night", "Лимит за ночь и только отель",
+             ["Я на машине, нужен отель в Центре до 5 тысяч за ночь с 3 по 6 декабря, нас двое"],
+             [("ответ без ошибок", answered), ("искал отели", called("search_hotels")),
+              ("не собирал перелёты", not_called("plan_trip", "search_flights")),
+              ("все до 5 000 за ночь", hotels_under(5000)), ("чистый текст", clean_text)]),
+    Scenario("ski_july", "Лыжи в июле — не по сезону",
+             ["Хотим покататься на лыжах в июле, двое взрослых"],
+             [("ответ без ошибок", answered), ("честно про сезон", mentions("зим", "сезон", "снег", "декабр", "январ")),
+              ("ничего не оформил", no_order), ("чистый текст", clean_text)]),
+    Scenario("surprise", "«Куда-нибудь, удиви» — без района",
+             ["Двое из Москвы с 1 по 5 декабря, бюджет 90 тысяч, район любой — удиви"],
+             [("ответ без ошибок", answered), ("собрана поездка", called("plan_trip")),
+              ("район не навязан", requirement("district", None)), ("не меньше двух пакетов", packages_ok),
+              ("чистый текст", clean_text)]),
+    Scenario("move_after_purchase", "Перенос оплаченного заказа на день позже",
+             ["Из Москвы в Сочи с 20 по 25 ноября, двое взрослых, бюджет 120 тысяч", "Беру Оптимум", "Оформляй",
+              "<approve>", "Можно перенести поездку на день позже?", "Да, оформляй перенос", "<approve>"],
+             [("ответ без ошибок", answered), ("вызван перенос", called("change_order_dates")),
+              ("старый заказ отменён, новый на день позже", moved_order(1)), ("чистый текст", clean_text)]),
+    Scenario("transfer_after_purchase", "Трансфер к уже купленному отелю",
+             ["Нужен только отель в Хосте на 4 ночи с 5 декабря, нас двое, билеты купили сами", "Беру первый",
+              "Оформляй", "<approve>", "А добавьте трансфер из аэропорта и обратно", "Оформляй", "<approve>"],
+             [("ответ без ошибок", answered), ("вызван трансфер к заказу", called("add_order_transfer")),
+              ("трансфер отдельным заказом", transfer_ordered), ("чистый текст", clean_text)]),
 ]
