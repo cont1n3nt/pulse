@@ -154,6 +154,7 @@ window.addEventListener('resize', keepPanelInViewport);
 
 function setPanelOpen(open) {
   accountPanel.hidden = !open;
+  if (!open) hideAccessCode();
   if (open) centerPanel();
   document.body.classList.toggle('panel-open', open);
   profileToggle.setAttribute('aria-expanded', String(open));
@@ -167,6 +168,7 @@ function setPanelOpen(open) {
 
 function setLoginMode(active) {
   accountView.hidden = active;
+  if (active) hideAccessCode();
   loginView.hidden = !active;
   accountTitle.textContent = active ? 'Войти в аккаунт' : 'Мой аккаунт';
   loginError.hidden = true;
@@ -188,26 +190,109 @@ profileToggle.addEventListener('click', () => {
   if (opening) { loadMemory(); refreshPurchases(); }
 });
 
-// Долговременная память агента: пользователь видит, что о нём помнят, и может стереть
-async function loadMemory() {
+const accountTabs = [...document.querySelectorAll('.account-tabs [role="tab"]')];
+function hideAccessCode() {
+  visible = false;
+  if (currentCode) codeEl.textContent = '•'.repeat(32);
+  showButton.textContent = 'Показать код';
+}
+accountTabs.forEach((tab, index) => {
+  tab.addEventListener('click', () => {
+    accountTabs.forEach(item => {
+      const selected = item === tab;
+      item.setAttribute('aria-selected', String(selected));
+      item.tabIndex = selected ? 0 : -1;
+      document.getElementById(item.getAttribute('aria-controls')).hidden = !selected;
+    });
+    hideAccessCode();
+    keepPanelInViewport();
+  });
+  tab.addEventListener('keydown', event => {
+    let next;
+    if (event.key === 'ArrowRight') next = (index + 1) % accountTabs.length;
+    if (event.key === 'ArrowLeft') next = (index + accountTabs.length - 1) % accountTabs.length;
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = accountTabs.length - 1;
+    if (next === undefined) return;
+    event.preventDefault();
+    accountTabs[next].click();
+    accountTabs[next].focus();
+  });
+});
+const saveMemory = document.querySelector('#save-memory');
+const resetMemory = document.querySelector('#reset-memory');
+const retryMemory = document.querySelector('#retry-memory');
+const memoryStatus = document.querySelector('#memory-status');
+let savedMemory = '';
+let memoryLimit = 512;
+let memoryBusy = false;
+let memoryRequest = 0;
+function updateMemoryControls() {
+  const dirty = memoryText.value !== savedMemory;
+  document.querySelector('#memory-count').textContent = `${Array.from(memoryText.value).length.toLocaleString('ru-RU')} / ${memoryLimit.toLocaleString('ru-RU')}`;
+  saveMemory.disabled = memoryBusy || memoryText.disabled || !dirty || Array.from(memoryText.value).length > memoryLimit;
+  resetMemory.disabled = memoryBusy || !dirty;
+  forgetButton.disabled = memoryBusy;
+}
+memoryText.addEventListener('input', () => {
+  memoryStatus.textContent = 'Есть несохранённые изменения';
+  updateMemoryControls();
+});
+resetMemory.addEventListener('click', () => {
+  memoryText.value = savedMemory;
+  memoryStatus.textContent = '';
+  updateMemoryControls();
+});
+retryMemory.addEventListener('click', () => loadMemory(true));
+async function loadMemory(force = false) {
+  if (memoryBusy || (!force && memoryText.value !== savedMemory)) return;
+  const epoch = accountEpoch;
+  const request = ++memoryRequest;
+  memoryText.disabled = true;
+  memoryStatus.textContent = 'Загрузка…';
+  retryMemory.hidden = true;
+  updateMemoryControls();
   try {
     const data = await api('/api/memory');
-    memoryText.textContent = data.text || 'Пока ничего: память появится после первой поездки.';
-    forgetButton.hidden = !data.text;
+    if (epoch !== accountEpoch || request !== memoryRequest) return;
+    memoryLimit = data.max_chars || 512;
+    savedMemory = data.text || '';
+    memoryText.value = savedMemory;
+    memoryText.disabled = false;
+    forgetButton.hidden = !savedMemory;
+    memoryStatus.textContent = '';
   } catch {
-    memoryText.textContent = 'Не удалось загрузить.';
+    if (epoch !== accountEpoch || request !== memoryRequest) return;
+    memoryStatus.textContent = 'Не удалось загрузить память.';
+    retryMemory.hidden = false;
+  } finally { if (epoch === accountEpoch && request === memoryRequest) updateMemoryControls(); }
+}
+async function writeMemory(text) {
+  if (memoryBusy) return;
+  const epoch = accountEpoch;
+  memoryBusy = true;
+  memoryText.disabled = true;
+  updateMemoryControls();
+  try {
+    const data = await api('/api/memory', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    if (epoch !== accountEpoch) return;
+    memoryLimit = data.max_chars || 512;
+    savedMemory = data.text || '';
+    memoryText.value = savedMemory;
+    forgetButton.hidden = !savedMemory;
+    memoryStatus.textContent = text.trim() ? 'Сохранено' : 'Память очищена';
+  } catch {
+    if (epoch === accountEpoch) memoryStatus.textContent = 'Не удалось сохранить. Изменения оставлены — попробуйте ещё раз.';
+  } finally {
+    if (epoch === accountEpoch) { memoryBusy = false; memoryText.disabled = false; updateMemoryControls(); }
   }
 }
+saveMemory.addEventListener('click', () => writeMemory(memoryText.value));
 forgetButton.addEventListener('click', async () => {
-  if (!await confirmAction({ title: 'Очистить память?', description: 'Агент забудет ваши предпочтения и прошлые поездки.', action: 'Очистить', danger: true })) return;
-  try {
-    const response = await fetch('/api/memory', { method: 'DELETE', credentials: 'same-origin' });
-    if (!response.ok) throw new Error();
-    memoryText.textContent = 'Память очищена.';
-    forgetButton.hidden = true;
-  } catch {
-    memoryText.textContent = 'Не удалось очистить память.';
-  }
+  if (!await confirmAction({ title: 'Очистить память?', description: 'Агент забудет предпочтения и сведения о поездках. Сами заказы останутся.', action: 'Очистить', danger: true })) return;
+  await writeMemory('');
 });
 closePanelButton.addEventListener('click', () => setPanelOpen(false));
 
@@ -1026,6 +1111,15 @@ async function loadUserChats(userId) {
   activeStream = null;
   activeUserId = userId;
   const epoch = ++accountEpoch;
+  ++memoryRequest;
+  memoryBusy = false;
+  savedMemory = '';
+  memoryText.value = '';
+  memoryText.disabled = true;
+  forgetButton.hidden = true;
+  memoryStatus.textContent = '';
+  updateMemoryControls();
+  loadMemory(true);
   chats = [];
   purchases = { carts: [], orders: [] };
   purchasesError = '';
