@@ -34,7 +34,8 @@ class BasketStatusTests(unittest.TestCase):
         cls.socket = socket.socket()
         cls.socket.bind(("127.0.0.1", 0))
         cls.url = f"http://127.0.0.1:{cls.socket.getsockname()[1]}"
-        cls.server = uvicorn.Server(uvicorn.Config(create_app(), log_level="error"))
+        cls.app = create_app()
+        cls.server = uvicorn.Server(uvicorn.Config(cls.app, log_level="error"))
         cls.thread = threading.Thread(
             target=cls.server.run, kwargs={"sockets": [cls.socket]}, daemon=True)
         cls.thread.start()

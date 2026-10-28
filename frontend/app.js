@@ -17,6 +17,8 @@ const panelDrag = document.querySelector('#panel-drag');
 const chatForm = document.querySelector('#chat-form');
 const chatInput = document.querySelector('#chat-input');
 const chatSend = document.querySelector('#chat-send');
+const chatStop = document.querySelector('#chat-stop');
+const chatReload = document.querySelector('#chat-reload');
 const chatMessages = document.querySelector('#chat-messages');
 const chatEmpty = document.querySelector('#chat-empty');
 const chatError = document.querySelector('#chat-error');
@@ -52,6 +54,9 @@ let activeUserId = null;
 let activeChatId = null;
 let chats = [];
 let chatBusy = true;
+let activeStream = null;
+const API_TIMEOUT_MS = 20000;
+const STREAM_IDLE_TIMEOUT_MS = 120000;
 let accountEpoch = 0;
 let currentCode = null;
 let visible = false;
@@ -160,29 +165,36 @@ closePanelButton.addEventListener('click', () => setPanelOpen(false));
 
 async function api(path, options = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-  let response;
+  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
-    response = await fetch(path, { credentials: 'same-origin', ...options, signal: controller.signal });
+    const response = await fetch(path, { credentials: 'same-origin', ...options, signal: controller.signal });
+    const data = await response.json();
+    if (!response.ok) {
+      const error = new Error(data.detail || 'Не удалось выполнить запрос');
+      error.status = response.status;
+      throw error;
+    }
+    return data;
   } catch (error) {
-    if (error.name === 'AbortError') throw new Error('Сервер долго не отвечает. Попробуйте ещё раз.');
+    if (controller.signal.aborted) {
+      error = new Error('Сервер долго не отвечает. Попробуйте ещё раз.');
+      error.code = 'REQUEST_TIMEOUT';
+    }
+    // Missing/partial responses cannot tell us whether a write reached the server.
+    error.resultUnknown = !error.status && !['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase());
     throw error;
   } finally {
     clearTimeout(timeout);
   }
-  const data = await response.json();
-  if (!response.ok) {
-    const error = new Error(data.detail || 'Не удалось выполнить запрос');
-    error.status = response.status;
-    throw error;
-  }
-  return data;
 }
 
 function setChatBusy(busy) {
   chatBusy = busy;
   newChatButton.disabled = !activeUserId || busy;
   chatSend.disabled = !activeChatId || busy;
+  chatSend.hidden = Boolean(activeStream);
+  chatStop.hidden = !activeStream;
+  chatReload.disabled = busy;
   chatInput.disabled = !activeChatId || busy;
   chatList.querySelectorAll('button').forEach((button) => { button.disabled = busy; });
   document.querySelectorAll('.suggestions .chip, .choose-hotel, .choose-package, .flex-button').forEach((button) => { button.disabled = !activeChatId || busy; });
@@ -594,6 +606,7 @@ function clearChat() {
   chatInput.value = '';
   resizeChatInput();
   chatError.hidden = true;
+  chatReload.hidden = true;
   resetTrip(null);
   setSuggestions(null);
 }
@@ -728,19 +741,28 @@ function closePendingConfirms() {
   }
 }
 
-async function readEvents(response, onEvent) {
+async function readEvents(response, onEvent, onProgress) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop();
-    for (const part of parts) {
-      if (part.startsWith('data: ')) onEvent(JSON.parse(part.slice(6)));
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error('Ответ прервался до завершения. Обновите чат, чтобы проверить результат.');
+      onProgress();
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split(/\r?\n\r?\n/);
+      buffer = parts.pop();
+      for (const part of parts) {
+        if (!part.startsWith('data: ')) continue;
+        const event = JSON.parse(part.slice(6));
+        onEvent(event);
+        if (event.type === 'done') return;
+      }
     }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
 }
 
@@ -799,7 +821,20 @@ async function streamAgent(url, payload) {
   if (chatBusy || !activeChatId) return;
   const epoch = accountEpoch;
   const chatId = activeChatId;
+  const stream = { controller: new AbortController(), timedOut: false };
+  activeStream = stream;
+  const isCurrent = () => activeStream === stream && epoch === accountEpoch && chatId === activeChatId;
+  let timeout;
+  const resetTimeout = () => {
+    clearTimeout(timeout);
+    if (!stream.controller.signal.aborted) timeout = setTimeout(() => {
+      stream.timedOut = true;
+      stream.controller.abort();
+    }, STREAM_IDLE_TIMEOUT_MS);
+  };
+  resetTimeout();
   chatError.hidden = true;
+  chatReload.hidden = true;
   setChatBusy(true);
   const reply = addBotReply();
   try {
@@ -808,26 +843,54 @@ async function streamAgent(url, payload) {
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: stream.controller.signal,
     });
+    resetTimeout();
     if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
+      const data = await response.json();
       throw new Error(data.detail || 'Не удалось отправить сообщение');
     }
     await readEvents(response, (event) => {
-      // пользователь переключил чат или аккаунт: этот поток больше не показываем
-      if (epoch === accountEpoch && chatId === activeChatId) handleEvent(reply, event);
-    });
+      if (isCurrent() && !stream.controller.signal.aborted) handleEvent(reply, event);
+    }, resetTimeout);
   } catch (error) {
-    if (epoch === accountEpoch) showChatError(error);
+    if (isCurrent()) {
+      if (stream.controller.signal.aborted) error = new Error(stream.timedOut
+        ? 'Две минуты нет новых данных. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
+        : 'Ожидание остановлено. Запрос может ещё выполняться. Обновите чат перед повторной отправкой.');
+      showChatError(error);
+      chatReload.hidden = false;
+    }
   } finally {
+    clearTimeout(timeout);
     reply.finish();
-    if (epoch === accountEpoch) {
+    if (isCurrent()) {
+      activeStream = null;
       setChatBusy(false);
       chatInput.focus();
       refreshPurchases();
     }
   }
 }
+
+chatStop.addEventListener('click', () => activeStream?.controller.abort());
+chatReload.addEventListener('click', async () => {
+  if (chatBusy || !activeChatId) return;
+  const epoch = accountEpoch;
+  const chatId = activeChatId;
+  setChatBusy(true);
+  try {
+    const data = await api(`/api/chats/${encodeURIComponent(chatId)}`);
+    if (epoch === accountEpoch && chatId === activeChatId) displayChat(data);
+  } catch (error) {
+    if (epoch === accountEpoch && chatId === activeChatId) showChatError(error);
+  } finally {
+    if (epoch === accountEpoch && chatId === activeChatId) {
+      setChatBusy(false);
+      refreshPurchases();
+    }
+  }
+});
 
 function sendMessage(text) {
   const message = text.trim();
@@ -856,6 +919,8 @@ function displayChat(data) {
 }
 
 async function loadUserChats(userId) {
+  activeStream?.controller.abort();
+  activeStream = null;
   activeUserId = userId;
   const epoch = ++accountEpoch;
   chats = [];
@@ -1182,9 +1247,25 @@ async function purchaseAction(cart, pay) {
     });
     if (epoch !== accountEpoch) return;
     setBasketActionMessage(pay ? `Заказ ${data.order.id} оформлен и сохранён в профиле. Деньги не списаны.` : 'Поездка удалена из корзины.');
-    if (activeChatId === cart.chat_id) displayChat(await api(`/api/chats/${encodeURIComponent(cart.chat_id)}`));
-  } catch (error) { if (epoch === accountEpoch) setBasketActionMessage(error.message); }
-  finally {
+    if (activeChatId === cart.chat_id) {
+      try {
+        const chat = await api(`/api/chats/${encodeURIComponent(cart.chat_id)}`);
+        if (epoch === accountEpoch && activeChatId === cart.chat_id) displayChat(chat);
+      } catch {
+        if (epoch === accountEpoch && activeChatId === cart.chat_id) {
+          showChatError(new Error('Операция выполнена, но не удалось обновить чат. Обновите его ещё раз.'));
+          chatReload.hidden = false;
+        }
+      }
+    }
+  } catch (error) {
+    if (epoch === accountEpoch) {
+      setBasketActionMessage(error.resultUnknown
+        ? 'Не удалось получить результат операции. Проверьте корзину и заказы перед повтором.'
+        : error.message);
+      if (error.resultUnknown && activeChatId === cart.chat_id) chatReload.hidden = false;
+    }
+  } finally {
     purchaseBusy = false;
     if (epoch === accountEpoch) { setChatBusy(false); await refreshPurchases(); }
   }
