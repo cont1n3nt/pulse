@@ -4,7 +4,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 from langgraph.types import interrupt
 
-from .. import memory, orders
+from .. import memory, providers
 from ..contracts import Requirements
 from ..trip import apply, describe_cart, describe_issues, diff_requirements, make_cart_item, refresh
 from ._state import BadInput, current_trip, emit, emit_cart, prepare_changes, result, session_id, user_id
@@ -160,10 +160,10 @@ def checkout(runtime: ToolRuntime):
             text += f" Вместо этого он написал: «{said}». Ответь на это сообщение."
         return result(runtime, "checkout", text, [])
 
-    order = orders.create(session_id(runtime), trip.version, trip.cart, trip.cart_total_rub)
+    order = providers.orders().create(session_id(runtime), trip.version, trip.cart, trip.cart_total_rub)
     replaced = change.get("order_id") if change.get("mode") == "replace" else None
     if replaced:
-        orders.cancel(replaced)
+        providers.orders().cancel(replaced)
     emit(runtime, "order", order=order.model_dump(mode="json"), cancelled=replaced)
     hotel = next((c.title for c in order.items if c.kind == "hotel"), "без отеля")
     memory.remember_order(runtime.store, user_id(runtime), order.id, f"{hotel}, итого {order.total_rub} ₽")

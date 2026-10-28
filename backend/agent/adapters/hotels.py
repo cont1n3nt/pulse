@@ -12,15 +12,11 @@ from datetime import date, timedelta
 from functools import lru_cache
 
 from ..config import SEED_DIR
-from ..contracts import HotelOption, TransferOption
+from ..contracts import AMENITY_CODES, AMENITY_NAMES, HotelOption, TransferOption  # noqa: F401 — словарь удобств
 from ..guardrails import sanitize_hotel
 from ..location import HERE
 
 DISTRICTS = HERE.district_names
-AMENITY_CODES = ("wifi", "pool", "parking", "kids", "pets", "breakfast", "beach_line", "spa")
-AMENITY_NAMES = {"wifi": "Wi-Fi", "pool": "бассейн", "parking": "парковка", "kids": "для детей",
-                 "pets": "с животными", "breakfast": "завтрак", "beach_line": "первая линия",
-                 "spa": "спа"}
 
 # параметры локации, нужные для проверки состыковок
 LOCAL_TZ = HERE.tz
@@ -248,7 +244,20 @@ def transfer(hotel: HotelOption, guests: int) -> TransferOption | None:
     km = hotel.airport_drive_km or hotel.distance_to_airport_km
     if minutes is None or km is None:
         return None
+    price, car = taxi_fare(km, guests)
+    return TransferOption(hotel_id=hotel.id, minutes=minutes, km=km, price_rub=price, car=car)
+
+
+def taxi_fare(km: float, guests: int) -> tuple[int, str]:
+    """(цена туда и обратно, машина) по демо-тарифу: с MINIVAN_FROM_GUESTS гостей — минивэн."""
     minivan = guests >= MINIVAN_FROM_GUESTS
     one_way = (TAXI_BASE_RUB + TAXI_PER_KM_RUB * km) * (MINIVAN_FACTOR if minivan else 1)
-    return TransferOption(hotel_id=hotel.id, minutes=minutes, km=km, price_rub=round(one_way / 50) * 50 * 2,
-                          car="minivan" if minivan else "standard")
+    return round(one_way / 50) * 50 * 2, "minivan" if minivan else "standard"
+
+
+def for_guests(transfer: TransferOption, guests: int) -> TransferOption:
+    """Тот же маршрут на другое число гостей: машина и цена пересчитываются."""
+    if transfer.km is None:
+        return transfer
+    price, car = taxi_fare(transfer.km, guests)
+    return transfer.model_copy(update={"price_rub": price, "car": car})
