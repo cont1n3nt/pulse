@@ -53,8 +53,10 @@ const sections = {
 let activeUserId = null;
 let activeChatId = null;
 let chats = [];
+// Короткие действия: загрузка, создание и удаление чата, оплата корзины
 let chatBusy = true;
-let activeStream = null;
+// Ответы агента по чатам: пока агент думает в одном чате, можно открыть другой или создать новый
+const streams = new Map();
 const API_TIMEOUT_MS = 20000;
 const STREAM_IDLE_TIMEOUT_MS = 120000;
 let accountEpoch = 0;
@@ -321,16 +323,27 @@ async function api(path, options = {}) {
   }
 }
 
+const agentThinking = () => streams.has(activeChatId);
+// В открытом чате нельзя писать: идёт короткое действие или агент ещё отвечает здесь
+const chatLocked = () => chatBusy || !activeChatId || agentThinking();
+
 function setChatBusy(busy) {
   chatBusy = busy;
-  newChatButton.disabled = !activeUserId || busy;
-  chatSend.disabled = !activeChatId || busy;
-  chatSend.hidden = Boolean(activeStream);
-  chatStop.hidden = !activeStream;
-  chatReload.disabled = busy;
-  chatInput.disabled = !activeChatId || busy;
-  chatList.querySelectorAll('button').forEach((button) => { button.disabled = busy; });
-  document.querySelectorAll('.suggestions .chip, .choose-hotel, .choose-package, .flex-button').forEach((button) => { button.disabled = !activeChatId || busy; });
+  updateChatControls();
+}
+
+function updateChatControls() {
+  const thinking = agentThinking();
+  const locked = chatLocked();
+  // «Новый чат» и список чатов ждут только короткие действия, не ответ агента
+  newChatButton.disabled = !activeUserId || chatBusy;
+  chatList.querySelectorAll('button').forEach((button) => { button.disabled = chatBusy; });
+  chatSend.disabled = locked;
+  chatSend.hidden = thinking;
+  chatStop.hidden = !thinking;
+  chatReload.disabled = locked;
+  chatInput.disabled = locked;
+  document.querySelectorAll('.suggestions .chip, .choose-hotel, .choose-package, .flex-button').forEach((button) => { button.disabled = locked; });
 }
 
 const mobileChatsQuery = matchMedia('(max-width: 650px)');
@@ -402,7 +415,12 @@ function renderChatList() {
     button.setAttribute('aria-current', item.id === activeChatId ? 'true' : 'false');
     button.textContent = item.title;
     const date = document.createElement('small');
-    date.textContent = new Date(item.updated_at).toLocaleDateString('ru-RU');
+    if (streams.has(item.id)) {
+      date.textContent = 'Агент отвечает…';
+      date.className = 'thinking';
+    } else {
+      date.textContent = new Date(item.updated_at).toLocaleDateString('ru-RU');
+    }
     button.append(date);
     button.disabled = chatBusy;
     button.addEventListener('click', () => selectChat(item.id));
@@ -566,7 +584,7 @@ function packageCard(pkg, compact = false) {
   } else {
     const choose = el('button', 'choose-package', 'Выбрать');
     choose.type = 'button';
-    choose.disabled = chatBusy || !activeChatId;
+    choose.disabled = chatLocked();
     choose.addEventListener('click', () => sendMessage(`Беру ${pkg.label}`));
     bottom.append(choose);
   }
@@ -592,7 +610,7 @@ function flexContent(flex) {
   const when = `${flex.shift_days < 0 ? 'раньше' : 'позже'} на ${days} ${plural(days, 'день', 'дня', 'дней')}`;
   const button = el('button', 'flex-button', `Сдвинуть ${when}: дешевле на ${rub(flex.saving_rub)}`);
   button.type = 'button';
-  button.disabled = chatBusy || !activeChatId;
+  button.disabled = chatLocked();
   button.addEventListener('click', () => sendMessage(`Давай сдвинем поездку ${when}: с ${localDay(flex.check_in)} по ${localDay(flex.check_out)}`));
   return [button];
 }
@@ -656,7 +674,7 @@ function hotelCard(hotel, cartIds) {
   } else {
     const choose = el('button', 'choose-hotel', 'Выбрать');
     choose.type = 'button';
-    choose.disabled = chatBusy || !activeChatId;
+    choose.disabled = chatLocked();
     // выбор идёт через агента: он положит отель в корзину и проверит поездку
     choose.addEventListener('click', () => sendMessage(`Беру «${hotel.name}»`));
     bottom.append(choose);
@@ -783,6 +801,9 @@ function resetTrip(trip) {
 // --- сообщения ------------------------------------------------------------------------------
 
 function clearChat() {
+  // Ответ в этом чате продолжается в фоне, но его место на экране пропадает
+  const stream = streams.get(activeChatId);
+  if (stream) stream.left = true;
   activeChatId = null;
   chatMessages.replaceChildren(chatEmpty);
   chatEmpty.hidden = false;
@@ -882,7 +903,7 @@ function setSuggestions(items) {
     const chip = el('button', 'chip', text);
     chip.type = 'button';
     chip.dataset.prompt = text;
-    chip.disabled = chatBusy || !activeChatId;
+    chip.disabled = chatLocked();
     chip.addEventListener('click', () => sendMessage(text));
     return chip;
   }));
@@ -907,7 +928,7 @@ function showConfirm(container, event) {
   if (event.replaces) card.append(el('p', 'muted', `Заказ ${event.replaces} отменится после оплаты нового`));
   if (event.issues?.length) card.append(issueList(event.issues));
   const decide = (approved) => {
-    if (chatBusy) return;
+    if (chatLocked()) return;
     card.classList.add('decided');
     actions.replaceChildren(el('p', 'muted', approved ? 'Оплата подтверждена' : 'Оплата отменена'));
     streamAgent(`/api/chats/${encodeURIComponent(activeChatId)}/checkout`, { approved });
@@ -1004,14 +1025,15 @@ function handleEvent(reply, event) {
   }
 }
 
-// Один ход агента: запрос, поток SSE, текст и карточки в чате
+// Один ход агента: запрос, поток SSE, текст и карточки в чате.
+// Если пользователь ушёл в другой чат, поток дочитывается в фоне: сервер сохранит ответ в историю.
 async function streamAgent(url, payload) {
-  if (chatBusy || !activeChatId) return;
+  if (chatLocked()) return;
   const epoch = accountEpoch;
   const chatId = activeChatId;
-  const stream = { controller: new AbortController(), timedOut: false };
-  activeStream = stream;
-  const isCurrent = () => activeStream === stream && epoch === accountEpoch && chatId === activeChatId;
+  const stream = { controller: new AbortController(), timedOut: false, left: false };
+  streams.set(chatId, stream);
+  const isCurrent = () => streams.get(chatId) === stream && epoch === accountEpoch && chatId === activeChatId && !stream.left;
   let timeout;
   const resetTimeout = () => {
     clearTimeout(timeout);
@@ -1023,8 +1045,9 @@ async function streamAgent(url, payload) {
   resetTimeout();
   chatError.hidden = true;
   chatReload.hidden = true;
-  setChatBusy(true);
   const reply = addBotReply();
+  updateChatControls();
+  renderChatList();
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -1039,7 +1062,9 @@ async function streamAgent(url, payload) {
       throw new Error(data.detail || 'Не удалось отправить сообщение');
     }
     await readEvents(response, (event) => {
-      if (isCurrent() && !stream.controller.signal.aborted) handleEvent(reply, event);
+      if (epoch !== accountEpoch || stream.controller.signal.aborted) return;
+      // название и дата чата в списке обновляются, даже если открыт другой чат
+      if (isCurrent() || event.type === 'chat') handleEvent(reply, event);
     }, resetTimeout);
   } catch (error) {
     if (isCurrent()) {
@@ -1052,18 +1077,41 @@ async function streamAgent(url, payload) {
   } finally {
     clearTimeout(timeout);
     reply.finish();
-    if (isCurrent()) {
-      activeStream = null;
-      setChatBusy(false);
-      chatInput.focus();
-      refreshPurchases();
+    // Поток всегда снимается с учёта, иначе чат останется заблокированным навсегда
+    if (streams.get(chatId) === stream) streams.delete(chatId);
+    if (epoch === accountEpoch) {
+      updateChatControls();
+      renderChatList();
+      if (chatId === activeChatId) {
+        // пользователь уходил из чата: на экране история без этого ответа, берём её с сервера
+        if (stream.left) reloadChat(chatId);
+        else chatInput.focus();
+        refreshPurchases();
+      }
     }
   }
 }
 
-chatStop.addEventListener('click', () => activeStream?.controller.abort());
+// Подгрузить открытый чат заново, если пользователь не начал за это время другое действие
+async function reloadChat(chatId) {
+  const epoch = accountEpoch;
+  try {
+    const data = await api(`/api/chats/${encodeURIComponent(chatId)}`);
+    if (epoch === accountEpoch && chatId === activeChatId && !chatBusy && !streams.has(chatId)) {
+      displayChat(data);
+      updateChatControls();
+    }
+  } catch (error) {
+    if (epoch === accountEpoch && chatId === activeChatId) {
+      showChatError(error);
+      chatReload.hidden = false;
+    }
+  }
+}
+
+chatStop.addEventListener('click', () => streams.get(activeChatId)?.controller.abort());
 chatReload.addEventListener('click', async () => {
-  if (chatBusy || !activeChatId) return;
+  if (chatLocked()) return;
   const epoch = accountEpoch;
   const chatId = activeChatId;
   setChatBusy(true);
@@ -1082,7 +1130,7 @@ chatReload.addEventListener('click', async () => {
 
 function sendMessage(text) {
   const message = text.trim();
-  if (!message || chatBusy || !activeChatId) return;
+  if (!message || chatLocked()) return;
   closePendingConfirms();
   addChatMessage('user', message);
   streamAgent('/api/chat', { session_id: activeChatId, message });
@@ -1101,14 +1149,21 @@ function displayChat(data) {
   }
   // заказ ждал подтверждения, когда страницу закрыли: возвращаем кнопку оплаты
   if (data.trip?.confirm) showConfirm((card) => chatMessages.append(card), data.trip.confirm);
+  // вернулись в чат, где агент ещё отвечает: ответ появится, когда он закончит
+  if (streams.has(data.chat.id)) {
+    const status = el('div', 'reasoning');
+    status.append(el('span', 'spinner'), el('span', 'status-text', 'Агент ещё отвечает…'));
+    chatMessages.append(status);
+  }
   scrollChat();
   renderChatList();
   if (mobileChatsQuery.matches) setChatsOpen(false);
 }
 
 async function loadUserChats(userId) {
-  activeStream?.controller.abort();
-  activeStream = null;
+  // другой аккаунт: ответы прежнего обрываются
+  for (const stream of streams.values()) stream.controller.abort();
+  streams.clear();
   activeUserId = userId;
   const epoch = ++accountEpoch;
   ++memoryRequest;
@@ -1205,7 +1260,7 @@ chatInput.addEventListener('keydown', (event) => {
 });
 chatForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  if (!chatInput.value.trim() || chatBusy || !activeChatId) return;
+  if (!chatInput.value.trim() || chatLocked()) return;
   const message = chatInput.value;
   chatInput.value = '';
   resizeChatInput();
@@ -1380,6 +1435,12 @@ async function deleteChat(item) {
   if (chatBusy) return;
   if (!await confirmAction({ title: `Удалить чат «${item.title}»?`, description: 'Поездки и заказы сохранятся.', action: 'Удалить', danger: true }) || chatBusy) return;
   const epoch = accountEpoch;
+  // агент ещё отвечал в удаляемом чате: обрываем ожидание без сообщения об ошибке
+  const stream = streams.get(item.id);
+  if (stream) {
+    stream.left = true;
+    stream.controller.abort();
+  }
   setChatBusy(true);
   try {
     await api(`/api/chats/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
@@ -1431,9 +1492,10 @@ function paintPurchases() {
     card.append(el('h3', '', cart.title), cartContent(cart));
     const actions = el('div', 'confirm-actions');
     const pay = actionButton(`Оплатить ${rub(cart.total_rub)}`, () => purchaseAction(cart, true), 'pay');
-    pay.disabled = purchaseBusy || chatBusy || cart.issues.some(i => i.severity === 'blocker');
+    // пока агент отвечает в чате этой поездки, он может менять её корзину
+    pay.disabled = purchaseBusy || chatBusy || streams.has(cart.chat_id) || cart.issues.some(i => i.severity === 'blocker');
     const remove = actionButton('Удалить', () => purchaseAction(cart, false), 'cancel danger');
-    remove.disabled = purchaseBusy || chatBusy;
+    remove.disabled = purchaseBusy || chatBusy || streams.has(cart.chat_id);
     actions.append(pay, remove);
     if (!cart.archived) {
       const open = actionButton('Перейти в чат', () => { basketDialog.close(); selectChat(cart.chat_id); }, 'text-link');
@@ -1460,7 +1522,7 @@ function paintPurchases() {
 }
 
 async function purchaseAction(cart, pay) {
-  if (purchaseBusy || chatBusy) return;
+  if (purchaseBusy || chatBusy || streams.has(cart.chat_id)) return;
   const paymentPrompt = cart.replaces
     ? `Перенести заказ ${cart.replaces} за ${rub(cart.total_rub)}?`
     : cart.extends ? `Оформить дополнение к заказу ${cart.extends} за ${rub(cart.total_rub)}?`
@@ -1470,7 +1532,7 @@ async function purchaseAction(cart, pay) {
     description: pay ? `${cart.replaces ? 'Прежний заказ отменится. ' : ''}Демо-оплата, деньги не спишутся.` : 'Поездка исчезнет из корзины.',
     action: pay ? 'Оформить' : 'Удалить',
     danger: !pay,
-  }) || purchaseBusy || chatBusy) return;
+  }) || purchaseBusy || chatBusy || streams.has(cart.chat_id)) return;
   const epoch = accountEpoch;
   purchaseBusy = true;
   setChatBusy(true);
