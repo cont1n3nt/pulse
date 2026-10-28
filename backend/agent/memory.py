@@ -11,6 +11,7 @@ from datetime import date
 
 from langgraph.store.base import BaseStore
 
+from .config import AGENT_MEMORY_MAX_CHARS
 from .contracts import Requirements
 from .reference import city_name
 
@@ -18,6 +19,9 @@ NAMESPACE = "users"
 KEY = "profile"
 MAX_FACTS = 12
 MAX_TRIPS = 5
+MAX_TEXT = AGENT_MEMORY_MAX_CHARS
+MAX_FACT_LENGTH = 300
+MAX_LIKES = 20
 
 
 def _ns(user_id: str) -> tuple[str, str]:
@@ -40,6 +44,17 @@ def forget(store: BaseStore, user_id: str) -> None:
     store.delete(_ns(user_id), KEY)
 
 
+def replace(store: BaseStore, user_id: str, text: str) -> None:
+    """User-edited snapshot replaces all previous preferences, without touching orders."""
+    if len(text) > MAX_TEXT:
+        raise ValueError(f"Память не должна превышать {MAX_TEXT} символов")
+    text = text.strip()
+    if text:
+        _save(store, user_id, {"notes": text})
+    else:
+        forget(store, user_id)
+
+
 def learn_requirements(store: BaseStore | None, user_id: str | None, req: Requirements) -> None:
     """Запоминает устойчивое о поездках: откуда летает, с кем ездит, что важно."""
     profile = load(store, user_id)
@@ -57,12 +72,15 @@ def learn_requirements(store: BaseStore | None, user_id: str | None, req: Requir
     likes |= {f"удобство: {code}" for code in req.must_have}
     if req.district:
         likes.add(f"район: {req.district}")
-    profile["likes"] = sorted(likes)
+    profile["likes"] = sorted(like[:MAX_FACT_LENGTH] for like in likes)[-MAX_LIKES:]
     if profile != before:
         _save(store, user_id, profile)
 
 
 def remember_fact(store: BaseStore | None, user_id: str | None, fact: str) -> None:
+    fact = fact.strip()[:MAX_FACT_LENGTH]
+    if not fact:
+        return
     profile = load(store, user_id)
     facts = [f for f in profile.get("facts", []) if f != fact]
     profile["facts"] = (facts + [fact])[-MAX_FACTS:]
@@ -72,7 +90,7 @@ def remember_fact(store: BaseStore | None, user_id: str | None, fact: str) -> No
 def remember_order(store: BaseStore | None, user_id: str | None, order_id: str, summary: str) -> None:
     profile = load(store, user_id)
     trips = [t for t in profile.get("trips", []) if t["order_id"] != order_id]
-    profile["trips"] = (trips + [{"order_id": order_id, "summary": summary,
+    profile["trips"] = (trips + [{"order_id": order_id, "summary": summary[:MAX_FACT_LENGTH],
                                   "date": date.today().isoformat()}])[-MAX_TRIPS:]
     _save(store, user_id, profile)
 
@@ -94,4 +112,7 @@ def describe(profile: dict) -> str:
         lines.append("Просил запомнить: " + "; ".join(profile["facts"]) + ".")
     for trip in profile.get("trips", []):
         lines.append(f"Прошлый заказ {trip['order_id']} ({trip['date']}): {trip['summary']}.")
-    return "\n".join(lines)
+    # Reserve room for newly learned facts; the full edited snapshot stays in storage.
+    learned = "\n".join(lines)[:MAX_TEXT]
+    notes = profile.get("notes", "")[:max(0, MAX_TEXT - len(learned) - bool(learned))]
+    return "\n".join(part for part in (notes, learned) if part)
