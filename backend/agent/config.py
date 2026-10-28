@@ -30,6 +30,10 @@ HTTP_TIMEOUT = float(env("HTTP_TIMEOUT", "20"))
 # Максимум шагов графа за один запрос: аварийный предохранитель. Один цикл «модель → инструмент»
 # занимает 3–4 шага (модель, инструменты, узлы middleware); основной лимит — 10 вызовов модели
 # в guardrails.py, он завершает ход корректно. Этот должен быть с запасом выше.
+AGENT_MEMORY_MAX_CHARS = int(env("AGENT_MEMORY_MAX_CHARS", "512"))
+if AGENT_MEMORY_MAX_CHARS < 1:
+    raise ValueError("AGENT_MEMORY_MAX_CHARS must be positive")
+
 AGENT_RECURSION_LIMIT = int(env("AGENT_RECURSION_LIMIT", "60"))
 
 SEED_DIR = Path(env("SEED_DIR", str(Path(__file__).resolve().parent.parent / "seed")))
