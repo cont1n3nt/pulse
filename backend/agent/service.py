@@ -36,13 +36,14 @@ from .prompts import system_prompt
 from .tools.flights import TOOLS as FLIGHT_TOOLS
 from .tools.hotels import TOOLS as HOTEL_TOOLS
 from .tools.packages import TOOLS as PACKAGE_TOOLS
+from .tools.aftersale import TOOLS as AFTERSALE_TOOLS
 from .tools.trip import TOOLS as TRIP_TOOLS
 from .tools._state import cart_block
 from .trip import reduce_trip, summary
 
 log = logging.getLogger(__name__)
 
-TOOLS = PACKAGE_TOOLS + HOTEL_TOOLS + TRIP_TOOLS + FLIGHT_TOOLS
+TOOLS = PACKAGE_TOOLS + HOTEL_TOOLS + TRIP_TOOLS + AFTERSALE_TOOLS + FLIGHT_TOOLS
 REPLY_TOOL = AgentReply.__name__
 # сетевые инструменты: временный сбой источника повторяется, потом модель получает объяснение
 NETWORK_TOOLS = ["search_flights"]

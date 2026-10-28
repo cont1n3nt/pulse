@@ -10,13 +10,14 @@ from .. import memory, packages
 from ..adapters import aviasales, holidays, trains, weather
 from ..adapters import hotels as hotels_db
 from ..contracts import Requirements
+from ..location import HERE
 from ..reference import city_name, find_city
 from ..trip import _rub, apply, describe_cart, describe_issues, refresh
 from ._state import BadInput, current_trip, emit, emit_cart, prepare_changes, result, user_id
 
 log = logging.getLogger(__name__)
 
-SOCHI = "AER"
+DESTINATION = HERE.airport.code
 DEFAULT_ORIGIN = ("MOW", "Москва")
 DEFAULT_ADULTS = 2
 CANDIDATES = 600  # с запасом: Эконом и Комфорт ищутся по всей выдаче, а не около ориентира цены
@@ -49,11 +50,11 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
               transport: str | None = None, assumption: str | None = None):
     """Собрать поездку целиком: 2–3 готовых пакета (перелёт или поезд туда и обратно + трансфер + отель)
     с одной итоговой суммой, сравнением в рублях, проверкой состыковок и погодой.
-    Не для тех, кому дорога не нужна (уже в Сочи, едет на машине, «только отель»): им — search_hotels.
+    Не для тех, кому дорога не нужна (уже на месте, едет на машине, «только отель»): им — search_hotels.
 
     Основной инструмент подбора. Новые или изменённые условия передавай прямо сюда одним вызовом:
     они сохранятся, а не названные возьмутся из сохранённых. Не вызывай его в одном шаге
-    с update_requirements. Если пользователь едет без перелёта (на машине, уже в Сочи) —
+    с update_requirements. Если пользователь едет без перелёта (на машине, уже на месте) —
     вместо него search_hotels.
 
     Args:
@@ -64,7 +65,7 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
         adults: число взрослых.
         children_ages: возраста детей, например [6]; [] — детей нет.
         budget_rub: бюджет на всю поездку вместе с перелётами, в рублях.
-        district: район: Адлер, Центр, Сириус, Красная Поляна, Хоста, Лазаревское; «любой» — снять.
+        district: район локации (список — в системном промпте); «любой» — снять.
         near_sea: нужен ли отель до 500 м от моря.
         transport: "train" — поездом («поездом», «не люблю летать», «боюсь самолётов»),
             "plane" — снова самолётом. Не передавай, если пользователь не говорил о транспорте.
@@ -106,15 +107,15 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
     nights = (req.check_out - req.check_in).days
     guests = max(req.guests, 1)
 
-    rail = trains.route(code) if code != SOCHI else None
+    rail = trains.route(code) if code != DESTINATION else None
     by_train = req.transport == "train" and rail is not None
-    if req.transport == "train" and rail is None and code != SOCHI:
-        notes.append(f"Поездов из {city_name(code)} в Сочи у меня нет: собрал с перелётом, скажи об этом.")
+    if req.transport == "train" and rail is None and code != DESTINATION:
+        notes.append(f"Поездов из {city_name(code)} {HERE.names.to} у меня нет: собрал с перелётом, скажи об этом.")
     outbound = back = None
-    if code != SOCHI and not by_train:
+    if code != DESTINATION and not by_train:
         try:
-            outbound = aviasales.cheapest_on(code, SOCHI, req.check_in, arrive_by=req.check_in)
-            back = aviasales.cheapest_on(SOCHI, code, req.check_out)
+            outbound = aviasales.cheapest_on(code, DESTINATION, req.check_in, arrive_by=req.check_in)
+            back = aviasales.cheapest_on(DESTINATION, code, req.check_out)
         except aviasales.SourceUnavailable:
             notes.append("Сервис цен на перелёты недоступен: пакеты собраны без перелётов, скажи об этом.")
         else:
@@ -156,8 +157,8 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
         try:
             flex = packages.flex_dates(
                 req, optimum.hotel,
-                aviasales.prices_around(code, SOCHI, req.check_in, packages.FLEX_DAYS),
-                aviasales.prices_around(SOCHI, code, req.check_out, packages.FLEX_DAYS))
+                aviasales.prices_around(code, DESTINATION, req.check_in, packages.FLEX_DAYS),
+                aviasales.prices_around(DESTINATION, code, req.check_out, packages.FLEX_DAYS))
         except aviasales.SourceUnavailable:
             flex = None
     forecast = weather.trip_weather(optimum.hotel.district, req.check_in, req.check_out)

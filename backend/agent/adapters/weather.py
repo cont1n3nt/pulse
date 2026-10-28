@@ -12,6 +12,7 @@ from datetime import date, timedelta
 import requests
 
 from ..config import HTTP_TIMEOUT
+from ..location import HERE
 
 log = logging.getLogger(__name__)
 
@@ -23,14 +24,8 @@ MARINE_DAYS = 7
 ARCHIVE_LAG_DAYS = 5  # архив отстаёт от сегодняшнего дня на несколько дней
 CACHE_TTL_S = 3600
 
-# точки погоды по районам: горы и побережье — разная погода
-DISTRICT_POINTS = {
-    "Центр": (43.585, 39.723), "Адлер": (43.43, 39.92), "Сириус": (43.41, 39.96),
-    "Хоста": (43.515, 39.87), "Лазаревское": (43.91, 39.33), "Красная Поляна": (43.68, 40.205),
-}
-SEA_POINT = (43.55, 39.70)
-# средняя температура воды у Сочи по месяцам, °C (многолетняя норма, округлено)
-SEA_NORM = {1: 10, 2: 9, 3: 9, 4: 11, 5: 16, 6: 21, 7: 25, 8: 26, 9: 24, 10: 20, 11: 16, 12: 12}
+# Точки погоды по районам (горы и побережье — разная погода), точка моря и норма температуры
+# воды по месяцам — из location.json
 
 # коды погоды WMO -> короткое описание
 WEATHER_CODES = {
@@ -91,23 +86,26 @@ def _days(data: dict | None, shift_years: int = 0) -> list[dict]:
     return out
 
 
-def _sea(start: date) -> dict:
+def _sea(start: date) -> dict | None:
+    sea = HERE.sea
+    if sea is None:
+        return None
     today = date.today()
     if start <= today + timedelta(days=MARINE_DAYS - 1):
-        data = _get(MARINE_URL, {"latitude": SEA_POINT[0], "longitude": SEA_POINT[1],
-                                 "daily": "sea_surface_temperature_max", "timezone": "Europe/Moscow",
+        data = _get(MARINE_URL, {"latitude": sea.lat, "longitude": sea.lon,
+                                 "daily": "sea_surface_temperature_max", "timezone": HERE.timezone,
                                  "forecast_days": MARINE_DAYS})
         values = [v for v in (data or {}).get("daily", {}).get("sea_surface_temperature_max", []) if v is not None]
         if values:
             return {"t": round(sum(values) / len(values)), "source": "прогноз"}
-    return {"t": SEA_NORM[start.month], "source": "норма для месяца"}
+    return {"t": sea.norm_by_month[start.month], "source": "норма для месяца"}
 
 
 def trip_weather(district: str | None, start: date, end: date) -> dict | None:
     """Погода на дни поездки [start, end] и температура моря. None, если источник недоступен."""
-    lat, lon = DISTRICT_POINTS.get(district or "Центр", DISTRICT_POINTS["Центр"])
+    place = HERE.district(district) or HERE.district(HERE.default_district)
     today = date.today()
-    params = {"latitude": lat, "longitude": lon, "timezone": "Europe/Moscow",
+    params = {"latitude": place.lat, "longitude": place.lon, "timezone": HERE.timezone,
               "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code"}
     if end <= today + timedelta(days=FORECAST_DAYS):
         days = _days(_get(FORECAST_URL, {**params, "start_date": start.isoformat(),
@@ -124,8 +122,8 @@ def trip_weather(district: str | None, start: date, end: date) -> dict | None:
         source = f"так было в эти даты в {past_start.year} году (Open-Meteo)"
     if not days:
         return None
-    sea = _sea(start) if district != "Красная Поляна" else None
-    return {"district": district or "Центр", "source": source, "days": days, "sea": sea}
+    sea = None if place.mountains else _sea(start)
+    return {"district": place.name, "source": source, "days": days, "sea": sea}
 
 
 def describe(weather: dict | None) -> str:

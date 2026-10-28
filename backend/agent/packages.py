@@ -13,6 +13,7 @@ from datetime import date, timedelta
 from .adapters import hotels as hotels_db
 from .adapters import trains
 from .contracts import CartItem, FlightOption, HotelOption, Package, Requirements, TripState
+from .location import HERE
 from .trip import _local, _rub, flight_item, hotel_item, refresh, transfer_item
 
 LABELS = {"economy": "Эконом", "optimum": "Оптимум", "comfort": "Комфорт"}
@@ -156,7 +157,7 @@ def _distance(m: int) -> str:
 
 def sea_text(hotel: HotelOption) -> str:
     if hotel.distance_to_sea_m is None:
-        return "в горах"
+        return "в горах" if HERE.in_mountains(hotel.district) else "море далеко"
     return f"до моря {_distance(hotel.distance_to_sea_m)}"
 
 
@@ -186,7 +187,8 @@ def tradeoffs(pkg: Package, base: Package) -> list[str]:
             and b.distance_to_sea_m is not None and abs(a.distance_to_sea_m - b.distance_to_sea_m) >= 150:
         facts.append(f"{sea_text(a)} вместо {_distance(b.distance_to_sea_m)}")
     elif (a.distance_to_sea_m is None) != (b.distance_to_sea_m is None):
-        facts.append("в горах, а не у моря" if a.distance_to_sea_m is None else f"у моря ({sea_text(a)}), а не в горах")
+        facts.append(f"{sea_text(a)}, а не у моря" if a.distance_to_sea_m is None
+                     else f"у моря ({sea_text(a)}), а не {sea_text(b).replace('море далеко', 'вдали от моря')}")
     if pkg.transfer and base.transfer and abs(pkg.transfer.minutes - base.transfer.minutes) >= TRANSFER_DIFF_MIN:
         facts.append(f"дорога {_from(pkg.transfer)} {pkg.transfer.minutes} мин вместо {base.transfer.minutes}")
     if a.meal != b.meal and a.meal and b.meal:

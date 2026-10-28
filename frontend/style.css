@@ -336,6 +336,7 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 .trip-section h3 { display: flex; align-items: baseline; gap: 0.4rem; margin: 0 0 0.6rem; font-size: 0.85rem; font-weight: 600; }
 .cart-box, .order-box { padding: 0.8rem 0.9rem; border: 1px solid #e6e6df; border-radius: 0.8rem; background: #fff; font-size: 0.8rem; }
 .order-box { border-color: #a7c7be; background: #f3f8f6; }
+.order-box.cancelled { border-color: #e6e6df; background: #f6f6f2; opacity: 0.7; }
 .order-box + .order-box { margin-top: 0.6rem; }
 
 /* карточки отелей сами раскладываются в столько колонок, сколько помещается */

@@ -1,4 +1,4 @@
-"""Поезда в Большой Сочи: альтернатива перелёту.
+"""Поезда в локацию: альтернатива перелёту. Нет секции rail в location.json — нет поездов.
 
 С ключом YANDEX_RASP_KEY поезда — настоящее расписание из API Яндекс Расписаний (rasp.py): номер,
 отправление и прибытие на нужную станцию; цена — из API, если она там есть, иначе демо.
@@ -6,8 +6,9 @@
 направления (порядок реальных фирменных и скорых поездов), отправление, прибытие и цена купе
 считаются детерминированно. Открытого API с ценами РЖД нет, а сайты билетов мы не парсим.
 
-Поезда идут вдоль побережья: Лазаревская → Лоо → Дагомыс → Сочи → Хоста → Адлер. Пассажир выходит на станции,
-ближайшей к отелю, поэтому время прибытия и такси до отеля зависят от отеля.
+Станции локации (в Сочи — вдоль побережья, от Лазаревской до Адлера) и время от них до конечной
+(hub) — в location.json. Пассажир выходит на станции, ближайшей к отелю, поэтому время прибытия
+и такси до отеля зависят от отеля.
 Контракт FlightOption с mode="train" один для обоих источников: source = yandex_rasp или rail_demo.
 """
 
@@ -16,39 +17,34 @@ import math
 from datetime import date, datetime, time, timedelta
 
 from ..contracts import FlightOption, HotelOption, TransferOption
+from ..location import HERE
 from . import hotels as hotels_db
 from . import rasp
 
-# город (код как у Aviasales) → (название, часов в пути до Адлера)
-ROUTES = {
-    "KRR": ("Краснодар", 5.5), "ROV": ("Ростов-на-Дону", 11), "MRV": ("Минеральные Воды", 14),
-    "VOZ": ("Воронеж", 19), "VOG": ("Волгоград", 22), "MOW": ("Москва", 25),
-    "GOJ": ("Нижний Новгород", 34), "LED": ("Санкт-Петербург", 38), "KUF": ("Самара", 40),
-    "KZN": ("Казань", 42), "UFA": ("Уфа", 52), "SVX": ("Екатеринбург", 60),
+# Города отправления (код как у Aviasales): название и центр — по нему находится код города
+# в Яндекс Расписаниях. Сколько ехать до локации — в location.json (rail.hours_from).
+ORIGINS = {
+    "KRR": ("Краснодар", 45.0355, 38.9753), "ROV": ("Ростов-на-Дону", 47.2357, 39.7015),
+    "MRV": ("Минеральные Воды", 44.2087, 43.1381), "VOZ": ("Воронеж", 51.6608, 39.2003),
+    "VOG": ("Волгоград", 48.7080, 44.5133), "MOW": ("Москва", 55.7558, 37.6173),
+    "GOJ": ("Нижний Новгород", 56.3269, 44.0059), "LED": ("Санкт-Петербург", 59.9386, 30.3141),
+    "KUF": ("Самара", 53.1959, 50.1002), "KZN": ("Казань", 55.7963, 49.1088),
+    "UFA": ("Уфа", 54.7388, 55.9721), "SVX": ("Екатеринбург", 56.8389, 60.6057),
 }
-# центры городов: по ним находится код города в Яндекс Расписаниях
-CITY_COORDS = {
-    "KRR": (45.0355, 38.9753), "ROV": (47.2357, 39.7015), "MRV": (44.2087, 43.1381),
-    "VOZ": (51.6608, 39.2003), "VOG": (48.7080, 44.5133), "MOW": (55.7558, 37.6173),
-    "GOJ": (56.3269, 44.0059), "LED": (59.9386, 30.3141), "KUF": (53.1959, 50.1002),
-    "KZN": (55.7963, 49.1088), "UFA": (54.7388, 55.9721), "SVX": (56.8389, 60.6057),
-}
-# станции вдоль побережья: координаты и сколько минут поезд идёт от неё до Адлера
-STATIONS = {
-    "Лазаревская": (43.9097, 39.3331, 150),
-    "Лоо": (43.7072, 39.5847, 100),
-    "Дагомыс": (43.6585, 39.6530, 85),
-    "Сочи": (43.5917, 39.7256, 60),
-    "Хоста": (43.5145, 39.8689, 30),
-    "Адлер": (43.4383, 39.9180, 0),
-}
-# дорога в горы и в Сириус идёт через Адлер, а не от ближайшей по прямой станции
-VIA_ADLER = ("Красная Поляна", "Сириус")
-ARRIVE_AT = time(9, 30)  # прибытие в Адлер «туда», плюс сдвиг по направлению
-DEPART_AT = time(16, 0)  # отправление из Адлера «обратно»: после выезда из отеля в 12:00
+RAIL = HERE.rail
+# город → (название, часов в пути до конечной станции локации)
+ROUTES = {code: (ORIGINS[code][0], hours) for code, hours in RAIL.hours_from.items()} if RAIL else {}
+CITY_COORDS = {code: ORIGINS[code][1:] for code in ROUTES}
+# станции локации: координаты и сколько минут поезд идёт от неё до конечной
+STATIONS = {s.name: (s.lat, s.lon, s.minutes_to_hub) for s in RAIL.stations} if RAIL else {}
+HUB = RAIL.hub if RAIL else None
+# районы, куда дорога идёт от конечной, а не от ближайшей по прямой станции (в Сочи — горы и Сириус)
+VIA_HUB = tuple(RAIL.via_hub) if RAIL else ()
+ARRIVE_AT = RAIL.arrive_at if RAIL else time(9, 30)  # прибытие на конечную «туда», плюс сдвиг по направлению
+DEPART_AT = RAIL.depart_at if RAIL else time(16, 0)  # отправление «обратно»: после выезда из отеля
 BOARDING_BUFFER_MIN = 30  # приехать на вокзал до отправления
 EXIT_MIN = 10  # выйти с вокзала и сесть в такси
-ROAD_FACTOR = 1.3  # дорога по Сочи длиннее прямой
+ROAD_FACTOR = 1.3  # дорога по городу длиннее прямой
 # Демо-цена купе на одного: посадка + час в пути, летом дороже
 FARE_BASE_RUB = 900
 FARE_PER_HOUR_RUB = 260
@@ -79,8 +75,10 @@ def _option(code: str, city: str, depart: datetime, arrive: datetime, outbound: 
     )
 
 
-def legs(code: str, check_in: date, check_out: date, station: str = "Адлер") -> tuple[FlightOption, FlightOption] | None:
-    """Поезд туда к дню заезда и обратно в день выезда: настоящее расписание, иначе демо."""
+def legs(code: str, check_in: date, check_out: date, station: str | None = None) -> tuple[FlightOption, FlightOption] | None:
+    """Поезд туда к дню заезда и обратно в день выезда: настоящее расписание, иначе демо.
+    Станция по умолчанию — конечная."""
+    station = station or HUB
     return live_legs(code, check_in, check_out, station) or demo_legs(code, check_in, check_out, station)
 
 
@@ -102,12 +100,13 @@ def live_legs(code: str, check_in: date, check_out: date, station: str) -> tuple
             rasp.to_option(home, False, city, station, _fare))
 
 
-def demo_legs(code: str, check_in: date, check_out: date, station: str = "Адлер") -> tuple[FlightOption, FlightOption] | None:
+def demo_legs(code: str, check_in: date, check_out: date, station: str | None = None) -> tuple[FlightOption, FlightOption] | None:
     """Демо: прибытие утром в день заезда и отправление днём в день выезда."""
     found = route(code)
     if found is None:
         return None
     city, hours = found
+    station = station or HUB
     offset = STATIONS[station][2]
     arrive = datetime.combine(check_in, ARRIVE_AT) + timedelta(minutes=_jitter(code, "to") - offset)
     outbound = _option(code, city, arrive - timedelta(hours=hours) + timedelta(minutes=offset), arrive, True, station)
@@ -118,7 +117,7 @@ def demo_legs(code: str, check_in: date, check_out: date, station: str = "Адл
 
 def stations_by_distance(hotel: HotelOption) -> list[tuple[str, float]]:
     """[(станция, км по прямой)] от ближайшей к отелю."""
-    names = ["Адлер"] if hotel.district in VIA_ADLER else list(STATIONS)
+    names = [HUB] if hotel.district in VIA_HUB else list(STATIONS)
     return sorted(((name, _km(hotel.lat, hotel.lon, *STATIONS[name][:2])) for name in names), key=lambda x: x[1])
 
 
@@ -159,8 +158,8 @@ def source_note(leg: FlightOption | None) -> str:
 
 
 def station_transfer(hotel: HotelOption, station: str, km: float, guests: int = 1) -> TransferOption:
-    if station == "Адлер" and hotel.airport_drive_min is not None:
-        # вокзал Адлер в 3 км от аэропорта: берём настоящий маршрут по дорогам из аэропорта
+    if station == HUB and hotel.airport_drive_min is not None:
+        # конечная у аэропорта (в Сочи — вокзал Адлер в 3 км): настоящий маршрут из аэропорта
         road_km = hotel.airport_drive_km or round(km * ROAD_FACTOR, 1)
         minutes = round(hotel.airport_drive_min * hotels_db.TRAFFIC_FACTOR) + EXIT_MIN
     else:

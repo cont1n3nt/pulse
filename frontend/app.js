@@ -511,8 +511,10 @@ function cartContent(cart, withTimeline = false) {
 
 function orderContent(order) {
   const box = el('div', 'order-box');
+  const cancelled = order.status === 'cancelled';
+  box.classList.toggle('cancelled', cancelled);
   box.append(
-    el('p', 'card-title', `Заказ ${order.id} оформлен`),
+    el('p', 'card-title', cancelled ? `Заказ ${order.id} отменён (перенесён)` : `Заказ ${order.id} оформлен`),
     itemRows(order.items),
     el('p', 'cart-total', `Итого ${rub(order.total_rub)} · оплата имитирована`),
   );
@@ -559,7 +561,7 @@ function renderTrip() {
   const hotel = packages[0]?.hotel ?? hotels[0];
   tripTitle.textContent = orders.length && !cart?.items.length
     ? 'Поездка оформлена'
-    : hotel ? `Сочи · ${shortDate(hotel.check_in)} – ${shortDate(hotel.check_out)}` : 'Пока пусто';
+    : hotel ? `${locationCity} · ${shortDate(hotel.check_in)} – ${shortDate(hotel.check_out)}` : 'Пока пусто';
 
   const count = cart?.items.length || packages.length || hotels.length;
   tripBadge.textContent = count ? String(count) : '';
@@ -701,7 +703,10 @@ function showConfirm(container, event) {
   const pay = el('button', 'pay', `Оплатить ${rub(event.total_rub)}`);
   const cancel = el('button', 'cancel', 'Отмена');
   pay.type = cancel.type = 'button';
-  const card = chatCard('confirm', el('p', 'card-title', 'Подтвердите оплату'), itemRows(event.items));
+  const title = event.replaces ? `Подтвердите перенос заказа ${event.replaces}`
+    : event.extends ? `Подтвердите дополнение к заказу ${event.extends}` : 'Подтвердите оплату';
+  const card = chatCard('confirm', el('p', 'card-title', title), itemRows(event.items));
+  if (event.replaces) card.append(el('p', 'muted', `Заказ ${event.replaces} отменится после оплаты нового`));
   if (event.issues?.length) card.append(issueList(event.issues));
   const decide = (approved) => {
     if (chatBusy) return;
@@ -771,7 +776,8 @@ function handleEvent(reply, event) {
       refreshChatPackages();
       showCartInChat(reply, tripView.cart);
     } else if (event.block === 'order') {
-      tripView.orders = [...tripView.orders.filter((order) => order.id !== event.order.id), event.order];
+      tripView.orders = [...tripView.orders.filter((order) => order.id !== event.order.id), event.order]
+        .map((order) => (order.id === event.cancelled ? { ...order, status: 'cancelled' } : order));
       tripView.cart = { items: [], total_rub: 0, issues: [] };
       renderTrip();
       // корзина оформлена: её карточка в чате больше не актуальна
@@ -942,6 +948,34 @@ document.querySelectorAll('.suggestions .chip').forEach((chip) => {
   chip.addEventListener('click', () => sendMessage(chip.dataset.prompt));
 });
 
+// Локация агента (backend/seed/<id>/location.json): подпись поездки и подсказки пустого чата.
+// В разметке — подсказки для Сочи на случай, если запрос не прошёл.
+let locationCity = 'Сочи';
+
+async function loadLocation() {
+  try {
+    const place = await api('/api/location');
+    locationCity = place.city;
+    if (!place.examples.length) return;
+    const checkout = defaultSuggestions.find((chip) => chip.dataset.prompt === 'Оформляй');
+    const chips = place.examples.map(({ label, prompt }) => {
+      const chip = el('button', 'chip', label);
+      chip.type = 'button';
+      chip.dataset.prompt = prompt;
+      chip.addEventListener('click', () => sendMessage(prompt));
+      return chip;
+    });
+    const showingDefaults = suggestionsBox.firstElementChild === defaultSuggestions[0];
+    defaultSuggestions.splice(0, defaultSuggestions.length, ...chips, ...(checkout ? [checkout] : []));
+    if (showingDefaults) suggestionsBox.replaceChildren(...defaultSuggestions);
+    chatEmpty.textContent = 'Опишите поездку своими словами: откуда, когда, с кем и на какой бюджет. '
+      + `Я соберу дорогу${place.trains ? ' (самолёт или поезд)' : ''}, трансфер и отель ${place.title === place.city ? '' : `(${place.title}) `}`
+      + `и проверю, что всё стыкуется. Например: «${place.examples[0].prompt}».`;
+  } catch {
+    // подсказки из разметки остаются
+  }
+}
+
 function render(data) {
   setLoginMode(false);
   idEl.textContent = data.user_id;
@@ -1043,4 +1077,5 @@ document.addEventListener('keydown', (event) => {
   if (!loginView.hidden) setLoginMode(false);
   else setPanelOpen(false);
 });
+loadLocation();
 initialize();

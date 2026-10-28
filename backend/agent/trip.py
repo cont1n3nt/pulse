@@ -12,7 +12,10 @@ reducer графа применяет операции по очереди. По
     {"op": "weather", "data": {...} | None}     погода на даты поездки
     {"op": "cart_add", "item": {...}}           CartItem; заменяет отель или перелёт того же плеча
     {"op": "cart_remove", "option_id": "..."}
-    {"op": "order", "order_id": "..."}          заказ оформлен, корзина очищается
+    {"op": "cart_set", "items": [...], "order_change": {...} | None}
+                                                корзина целиком: перенос заказа или дополнение к нему
+    {"op": "order", "order_id": "...", "cancelled": "..." | None}
+                                                заказ оформлен, корзина очищается; cancelled — заменённый заказ
 """
 
 from datetime import date, datetime, timedelta
@@ -20,6 +23,7 @@ from datetime import date, datetime, timedelta
 from .adapters import hotels as hotels_db
 from .adapters import trains
 from .contracts import CartItem, FlightOption, HotelOption, Issue, Package, Requirements, TransferOption, TripState
+from .location import HERE
 
 AIRPORT_BUFFER_MIN = 90  # приехать в аэропорт до вылета
 EARLY_CHECKIN_WAIT_H = 2  # ожидание заселения, о котором стоит предупредить
@@ -63,9 +67,17 @@ def apply(trip: TripState, op: dict) -> TripState:
             _follow_hotel(trip, HotelOption.model_validate(item.snapshot))
     elif kind == "cart_remove":
         trip.cart = [c for c in trip.cart if c.option_id != op["option_id"]]
+        if not trip.cart:
+            trip.order_change = None
+    elif kind == "cart_set":
+        trip.cart = [CartItem.model_validate(x) for x in op["items"]]
+        trip.order_change = op.get("order_change")
     elif kind == "order":
         trip.orders.append(op["order_id"])
+        if op.get("cancelled"):
+            trip.cancelled_orders.append(op["cancelled"])
         trip.cart = []
+        trip.order_change = None
     else:
         raise ValueError(f"Неизвестная операция {kind}")
     trip.version += 1
@@ -167,7 +179,7 @@ def make_cart_item(trip: TripState, option_id: str) -> CartItem | str:
         if flight.id == option_id:
             leg = _direction(flight)
             if leg is None:
-                return "Этот перелёт не в Сочи и не из Сочи, в поездку его добавить нельзя."
+                return f"Этот перелёт не {HERE.names.within} и не оттуда, в поездку его добавить нельзя."
             return flight_item(flight, leg)
     return (f"Варианта {option_id} нет в последней выдаче. Добавлять можно только отели и перелёты "
             f"из последнего поиска; если условия менялись, сначала повтори поиск.")
@@ -187,8 +199,10 @@ def validate(trip: TripState) -> list[Issue]:
     outbound = _flight(trip, "outbound")
     back = _flight(trip, "return")
 
+    extends = (trip.order_change or {}).get("mode") == "extend"
     if hotel is None:
-        add("no_hotel", "blocker", "В корзине нет отеля.")
+        if not extends:  # дополнение к заказу: отель уже куплен в нём
+            add("no_hotel", "blocker", "В корзине нет отеля.")
     else:
         _check_hotel(hotel, r, add)
 
@@ -448,10 +462,18 @@ def summary(trip: TripState) -> str:
         lines.append("Пакеты: " + "; ".join(f"[{p.id}] {p.label} — {p.hotel.name}, итого {_rub(p.total_rub)}"
                                             for p in trip.packages) + ".")
     lines.append(describe_cart(trip))
+    if trip.order_change:
+        change = trip.order_change
+        what = ("перенос заказа: после оплаты он заменит" if change["mode"] == "replace"
+                else "дополнение к заказу")
+        lines.append(f"Корзина — {what} {change['order_id']}.")
     if trip.cart:
         lines.append(describe_issues(trip.issues))
-    if trip.orders:
-        lines.append(f"Оформленные заказы: {', '.join(trip.orders)}.")
+    active = [o for o in trip.orders if o not in trip.cancelled_orders]
+    if active:
+        lines.append(f"Оформленные заказы: {', '.join(active)}.")
+    if trip.cancelled_orders:
+        lines.append(f"Отменённые (заменённые) заказы: {', '.join(trip.cancelled_orders)}.")
     return "\n".join(lines)
 
 

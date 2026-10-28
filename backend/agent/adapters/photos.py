@@ -23,6 +23,7 @@ import requests
 
 from ..config import DATA_DIR
 from ..contracts import HotelOption
+from ..location import HERE
 
 log = logging.getLogger(__name__)
 
@@ -40,11 +41,12 @@ COMMONS_RADIUS_M = 150
 # за ним внешний сайт, а не внутренняя сеть
 FAKE_IP = ipaddress.ip_network("198.18.0.0/15")
 SKIP_TITLE = re.compile(r"map|карта|схема|logo|логотип|\.svg|\.tif|\.pdf|plan|diagram", re.I)
-# слова из названий отелей, которые не отличают отель от соседей: город, район, тип
-GENERIC_WORDS = {"отель", "hotel", "гостиница", "sochi", "сочи", "adler", "адлер", "sirius", "сириус", "хоста",
-                 "khosta", "лазаревское", "красная", "поляна", "krasnaya", "polyana", "park", "парк", "resort",
+# слова из названий отелей, которые не отличают отель от соседей: тип, а также город и районы локации
+GENERIC_WORDS = {"отель", "hotel", "гостиница", "park", "парк", "resort",
                  "club", "клуб", "house", "дом", "мини", "mini", "гостевой", "apartments", "апартаменты", "center",
                  "centre", "центр", "spa", "спа", "плаза", "plaza", "grand", "гранд"}
+GENERIC_WORDS |= {w.lower() for name in (HERE.names.city, *HERE.district_names) for w in name.split()}
+GENERIC_WORDS |= set(HERE.photo_stopwords)
 # снимки места, которые уместны вместо фото отеля: море, пляж, набережная, вид, горы
 PLACE_TITLE = re.compile(r"hotel|отел|гостиниц|resort|sea|море|beach|пляж|embankment|набережн|promenade|"
                          r"view|вид|panorama|панорам|coast|берег|mountain|гор[аы]|sunset|закат|park|парк", re.I)

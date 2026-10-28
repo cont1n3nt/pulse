@@ -82,3 +82,11 @@ def get(order_id: str) -> Order | None:
     with _LOCK:
         row = _db().execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
     return _row(row) if row else None
+
+
+def cancel(order_id: str) -> None:
+    """Отменить заказ: его заменил перенесённый (оплата имитируется, возврат тоже)."""
+    with _LOCK:
+        db = _db()
+        db.execute("UPDATE orders SET status = 'cancelled' WHERE id = ?", (order_id,))
+        db.commit()

@@ -28,7 +28,7 @@ def update_requirements(runtime: ToolRuntime, check_in: str | None = None, check
         adults: число взрослых.
         children_ages: возраста детей, например [5, 8]; [] — детей нет.
         budget_rub: бюджет на всю поездку в рублях; 0 — снять ограничение.
-        district: район: Адлер, Центр, Сириус, Красная Поляна, Хоста, Лазаревское; «любой» — снять.
+        district: район локации (список — в системном промпте); «любой» — снять.
         must_have: полный новый список обязательных удобств из: wifi, pool, parking, kids, pets,
             breakfast, beach_line, spa; [] — снять все.
         near_sea: нужен ли отель до 500 м от моря.
@@ -142,11 +142,15 @@ def checkout(runtime: ToolRuntime):
 
     # Граф останавливается здесь, пока пользователь не нажмёт кнопку. После ответа инструмент
     # выполняется заново с начала, поэтому всё выше не должно иметь побочных эффектов.
+    change = trip.order_change or {}
     decision = interrupt({
         "type": "checkout",
         "items": [c.model_dump(mode="json") for c in trip.cart],
         "total_rub": trip.cart_total_rub,
         "issues": [i.model_dump() for i in trip.issues],
+        # перенос заказа: новый заменит этот; дополнение: трансфер к этому заказу
+        "replaces": change.get("order_id") if change.get("mode") == "replace" else None,
+        "extends": change.get("order_id") if change.get("mode") == "extend" else None,
     })
     if not decision.get("approved"):
         text = "Пользователь не подтвердил оплату, заказ не оформлен."
@@ -155,13 +159,20 @@ def checkout(runtime: ToolRuntime):
         return result(runtime, "checkout", text, [])
 
     order = orders.create(session_id(runtime), trip.version, trip.cart, trip.cart_total_rub)
-    emit(runtime, "order", order=order.model_dump(mode="json"))
+    replaced = change.get("order_id") if change.get("mode") == "replace" else None
+    if replaced:
+        orders.cancel(replaced)
+    emit(runtime, "order", order=order.model_dump(mode="json"), cancelled=replaced)
     hotel = next((c.title for c in order.items if c.kind == "hotel"), "без отеля")
     memory.remember_order(runtime.store, user_id(runtime), order.id, f"{hotel}, итого {order.total_rub} ₽")
-    text = (f"Заказ {order.id} оформлен, оплата имитирована (демо, деньги не списаны). Итого {order.total_rub} ₽.\n"
-            f"Назови пользователю номер заказа, коротко что в него вошло, и что оплата демонстрационная. "
-            f"Не пиши, что оплата прошла.")
-    return result(runtime, "checkout", text, [{"op": "order", "order_id": order.id}])
+    text = f"Заказ {order.id} оформлен, оплата имитирована (демо, деньги не списаны). Итого {order.total_rub} ₽.\n"
+    if replaced:
+        text += f"Он заменил заказ {replaced}: тот отменён, возврат тоже демо.\n"
+    elif change.get("mode") == "extend":
+        text += f"Это дополнение к заказу {change['order_id']}.\n"
+    text += ("Назови пользователю номер заказа, коротко что в него вошло, и что оплата демонстрационная. "
+             "Не пиши, что оплата прошла.")
+    return result(runtime, "checkout", text, [{"op": "order", "order_id": order.id, "cancelled": replaced}])
 
 
 @tool

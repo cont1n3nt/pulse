@@ -1,58 +1,52 @@
-"""Поиск отелей Большого Сочи.
+"""Поиск отелей локации (location.py).
 
 Объекты, адреса, координаты, звёзды, сайты и факты о расположении — реальные, из OpenStreetMap
-(seed/sochi/hotels.json, выгрузка scripts/fetch_osm_sochi.py, © участники OpenStreetMap, ODbL).
+(seed/<локация>/hotels.json, выгрузка scripts/fetch_osm.py, © участники OpenStreetMap, ODbL).
 Цена, наличие, питание и условия отмены — демо-модель: считаются детерминированно, поэтому
 повторный поиск с теми же условиями даёт те же цены.
 """
 
 import hashlib
 import json
-from datetime import date, time, timedelta, timezone
+from datetime import date, timedelta
 from functools import lru_cache
 
 from ..config import SEED_DIR
 from ..contracts import HotelOption, TransferOption
 from ..guardrails import sanitize_hotel
+from ..location import HERE
 
-DISTRICTS = ("Адлер", "Центр", "Сириус", "Красная Поляна", "Хоста", "Лазаревское")
+DISTRICTS = HERE.district_names
 AMENITY_CODES = ("wifi", "pool", "parking", "kids", "pets", "breakfast", "beach_line", "spa")
 AMENITY_NAMES = {"wifi": "Wi-Fi", "pool": "бассейн", "parking": "парковка", "kids": "для детей",
                  "pets": "с животными", "breakfast": "завтрак", "beach_line": "первая линия",
                  "spa": "спа"}
 
 # параметры локации, нужные для проверки состыковок
-LOCAL_TZ = timezone(timedelta(hours=3))  # Сочи, MSK
-AIRPORTS = ("AER",)
-CHECK_IN_TIME = time(14, 0)
-CHECK_OUT_TIME = time(12, 0)
-TRANSFER_SPEED_KMH = 35  # если маршрута нет: средняя скорость такси по Сочи с пробками
-TRAFFIC_FACTOR = 1.3  # маршрут OSRM — без пробок, курортные дороги загружены
+LOCAL_TZ = HERE.tz
+AIRPORTS = (HERE.airport.code,)
+CHECK_IN_TIME = HERE.check_in
+CHECK_OUT_TIME = HERE.check_out
+TRANSFER_SPEED_KMH = HERE.taxi.speed_kmh  # если маршрута нет: средняя скорость такси с пробками
+TRAFFIC_FACTOR = HERE.taxi.traffic_factor  # маршрут OSRM — без пробок, курортные дороги загружены
 TRANSFER_OVERHEAD_MIN = 20  # выход из аэропорта, багаж, ожидание машины
-# Демо-тариф такси аэропорт ⇄ отель (допущение, порядок цен Сочи): посадка + километры, минивэн дороже
-TAXI_BASE_RUB = 500
-TAXI_PER_KM_RUB = 38
+# Демо-тариф такси аэропорт ⇄ отель (допущение, порядок цен локации): посадка + километры, минивэн дороже
+TAXI_BASE_RUB = HERE.taxi.base_rub
+TAXI_PER_KM_RUB = HERE.taxi.per_km_rub
 MINIVAN_FACTOR = 1.5
 MINIVAN_FROM_GUESTS = 5
 
-# коэффициенты сезона по месяцам
-_COAST = {1: 0.7, 2: 0.7, 3: 0.7, 4: 0.7, 5: 1.0, 6: 1.3, 7: 1.6, 8: 1.6,
-          9: 1.3, 10: 1.0, 11: 0.7, 12: 0.8}
-_MOUNTAIN = {1: 1.6, 2: 1.6, 3: 1.4, 4: 0.7, 5: 0.7, 6: 0.9, 7: 1.1, 8: 1.1,
-             9: 0.9, 10: 0.7, 11: 0.7, 12: 1.6}
-
 # Демо-модель цены за ночь в межсезонье (коэффициент сезона 1.0). Допущения, а не статистика:
-# порядок цен для Сочи, чтобы выдача и бюджеты выглядели правдоподобно. Класс — звёзды из OSM,
+# порядок цен курорта, чтобы выдача и бюджеты выглядели правдоподобно. Класс — звёзды из OSM,
 # а где их нет — оценка выгрузки по типу объекта и известным сетям (price_class).
+# Сезонность и поправка района — из location.json.
 BASE_PRICE_BY_CLASS = {1: 1800, 2: 3200, 3: 5000, 4: 8500, 5: 16000}
 KIND_FACTOR = {"hostel": 0.8, "guest_house": 0.95, "apartment": 1.0, "hotel": 1.0, "resort": 1.15}
-DISTRICT_FACTOR = {"Центр": 1.1, "Сириус": 1.15, "Красная Поляна": 1.1, "Адлер": 1.0,
-                   "Хоста": 0.95, "Лазаревское": 0.85}
 
 
 def sea_factor(distance_m: int | None) -> float:
     if distance_m is None:
-        return 1.0  # горы: море не влияет
+        return 1.0  # горы или море далеко: не влияет
     if distance_m <= 300:
         return 1.2
     if distance_m <= 800:
@@ -63,14 +57,19 @@ def sea_factor(distance_m: int | None) -> float:
 def base_price(raw: dict) -> int:
     """Базовая цена объекта: класс × тип × район × близость к морю × индивидуальный разброс ±15%."""
     price = (BASE_PRICE_BY_CLASS[raw.get("price_class") or 3] * KIND_FACTOR[raw["kind"]]
-             * DISTRICT_FACTOR.get(raw["district"], 1.0) * sea_factor(raw.get("distance_to_sea_m"))
+             * _district_factor(raw["district"]) * sea_factor(raw.get("distance_to_sea_m"))
              * (0.85 + 0.3 * h(raw["id"], "base")))
     return round(price / 100) * 100
 
 
+def _district_factor(name: str) -> float:
+    district = HERE.district(name)
+    return district.price_factor if district else 1.0
+
+
 @lru_cache
 def _load() -> tuple[dict, ...]:
-    with open(SEED_DIR / "sochi" / "hotels.json", encoding="utf-8") as f:
+    with open(SEED_DIR / HERE.id / "hotels.json", encoding="utf-8") as f:
         hotels = [sanitize_hotel(raw) for raw in json.load(f)]
     for raw in hotels:
         raw["price_from_rub"] = base_price(raw)
@@ -84,16 +83,14 @@ def h(*parts) -> float:
 
 
 def price_per_night(hotel: dict, day: date) -> int:
-    season = (_MOUNTAIN if hotel["district"] == "Красная Поляна" else _COAST)[day.month]
+    season = HERE.season(hotel["district"], day.month)
     weekend = 1.1 if day.weekday() in (4, 5) else 1.0  # пт/сб
     noise = 0.9 + 0.2 * h(hotel["id"], day)
     return round(hotel["price_from_rub"] * season * weekend * noise / 10) * 10
 
 
 def available(hotel: dict, check_in: date, check_out: date) -> bool:
-    high = check_in.month in (7, 8) or (check_in.month, check_in.day) >= (12, 25) \
-        or (check_in.month, check_in.day) <= (1, 8)
-    load = 0.35 if high else 0.1
+    load = 0.35 if HERE.is_high_season(check_in) else 0.1
     return h(hotel["id"], check_in, "avail") >= load
 
 
