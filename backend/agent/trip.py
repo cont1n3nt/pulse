@@ -29,6 +29,7 @@ AIRPORT_BUFFER_MIN = 90  # приехать в аэропорт до вылет�
 EARLY_CHECKIN_WAIT_H = 2  # ожидание заселения, о котором стоит предупредить
 LATE_CHECKOUT_WAIT_H = 3  # ожидание после выезда, о котором стоит сказать
 LONG_TRANSFER_MIN = 90  # дорога из аэропорта, о которой стоит предупредить
+NIGHT_END_H = 5  # прибытие до этого часа в день заезда — ночь без жилья
 
 
 # --- reducer --------------------------------------------------------------------------------
@@ -118,10 +119,15 @@ def _same_slot(a: CartItem, b: CartItem) -> bool:
 
 def refresh(trip: TripState) -> TripState:
     passengers = max(trip.requirements.guests, 1)
-    for item in trip.cart:
+    for i, item in enumerate(trip.cart):
         if item.kind == "flight":
             price = item.snapshot.get("price_rub")
             item.price_rub = price * passengers if price is not None else None
+        elif item.kind == "transfer":
+            # гостей стало больше или меньше: машина и цена такси под новое число гостей
+            fresh = hotels_db.for_guests(TransferOption.model_validate(item.snapshot), passengers)
+            if fresh.price_rub != item.price_rub or fresh.car != item.snapshot.get("car"):
+                trip.cart[i] = transfer_item(fresh)
     trip.cart_total_rub = sum(c.price_rub or 0 for c in trip.cart)
     trip.issues = validate(trip) if trip.cart else []
     trip.stage = stage(trip)
@@ -279,7 +285,13 @@ def _check_arrival(hotel: HotelOption, flight: FlightOption, road: int | None, a
     at_hotel = arrive + timedelta(minutes=transfer or 0)
     check_in = datetime.combine(hotel.check_in, hotels_db.CHECK_IN_TIME)
     wait = check_in - at_hotel
-    if wait >= timedelta(hours=EARLY_CHECKIN_WAIT_H):
+    if arrive.hour < NIGHT_END_H:
+        # прилёт ночью в день заезда: номер оплачен только со следующей ночи
+        add("night_arrival", "warning",
+            f"{word} {arrive:%d.%m в %H:%M} — ночью, а заселение с {hotels_db.CHECK_IN_TIME:%H:%M}: "
+            f"эта ночь без жилья, ждать около {_hours(wait)}. Лучше рейс днём или отель с ночи "
+            f"{hotel.check_in - timedelta(days=1):%d.%m}.")
+    elif wait >= timedelta(hours=EARLY_CHECKIN_WAIT_H):
         place = "с вокзала" if train else "из аэропорта"
         road_text = f", дорога {place} около {transfer} мин" if transfer else ""
         add("early_checkin", "warning",
@@ -318,7 +330,7 @@ def _flight(trip: TripState, leg: str) -> FlightOption | None:
 
 # --- маршрут поездки -------------------------------------------------------------------------
 
-ARRIVAL_ISSUES = ("late_arrival", "early_arrival", "early_checkin")
+ARRIVAL_ISSUES = ("late_arrival", "early_arrival", "night_arrival", "early_checkin")
 DEPARTURE_ISSUES = ("late_departure", "unused_night", "late_checkout", "flights_order")
 HOTEL_ISSUES = ("unavailable", "price_changed", "dates_mismatch", "hostel_with_kids")
 

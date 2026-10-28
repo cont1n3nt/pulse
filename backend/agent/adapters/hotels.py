@@ -248,7 +248,20 @@ def transfer(hotel: HotelOption, guests: int) -> TransferOption | None:
     km = hotel.airport_drive_km or hotel.distance_to_airport_km
     if minutes is None or km is None:
         return None
+    price, car = taxi_fare(km, guests)
+    return TransferOption(hotel_id=hotel.id, minutes=minutes, km=km, price_rub=price, car=car)
+
+
+def taxi_fare(km: float, guests: int) -> tuple[int, str]:
+    """(цена туда и обратно, машина) по демо-тарифу: с MINIVAN_FROM_GUESTS гостей — минивэн."""
     minivan = guests >= MINIVAN_FROM_GUESTS
     one_way = (TAXI_BASE_RUB + TAXI_PER_KM_RUB * km) * (MINIVAN_FACTOR if minivan else 1)
-    return TransferOption(hotel_id=hotel.id, minutes=minutes, km=km, price_rub=round(one_way / 50) * 50 * 2,
-                          car="minivan" if minivan else "standard")
+    return round(one_way / 50) * 50 * 2, "minivan" if minivan else "standard"
+
+
+def for_guests(transfer: TransferOption, guests: int) -> TransferOption:
+    """Тот же маршрут на другое число гостей: машина и цена пересчитываются."""
+    if transfer.km is None:
+        return transfer
+    price, car = taxi_fare(transfer.km, guests)
+    return transfer.model_copy(update={"price_rub": price, "car": car})

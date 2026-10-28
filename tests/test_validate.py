@@ -105,3 +105,20 @@ def test_itinerary_puts_issue_on_its_step():
     check_in = next(s for s in steps if s["kind"] == "checkin")
     assert any(i["code"] == "early_checkin" for i in check_in["issues"])
     assert [s["at"] for s in steps] == sorted(s["at"] for s in steps)
+
+
+def test_night_arrival_on_check_in_day_is_night_without_room():
+    night = flight(datetime.combine(CHECK_IN, datetime.min.time()).replace(hour=1), hours=1.5)
+    trip = assembled(outbound=night, back=evening_back())
+    assert "night_arrival" in codes(trip, "warning")
+    assert "early_checkin" not in codes(trip)
+
+
+def test_more_guests_turn_taxi_into_minivan():
+    trip = assembled(outbound=morning_out(), back=evening_back())
+    taxi = next(c for c in trip.cart if c.kind == "transfer")
+    assert taxi.snapshot["car"] == "standard"
+    five = refresh(trip.model_copy(update={"requirements": trip.requirements.model_copy(update={"adults": 5})}))
+    minivan = next(c for c in five.cart if c.kind == "transfer")
+    assert minivan.snapshot["car"] == "minivan" and minivan.price_rub > taxi.price_rub
+    assert five.cart_total_rub == sum(c.price_rub for c in five.cart)
