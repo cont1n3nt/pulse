@@ -1,4 +1,5 @@
 import hmac
+import hashlib
 import json
 import logging
 import uuid
@@ -6,16 +7,16 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.agent import (forget_memory, get_memory, get_order, hotel_photo, resume_checkout, stream_message,
-                           trip_view)
+from backend.agent import (account_cart, change_account_cart, forget_memory, get_memory, get_order,
+                           hotel_photo, resume_checkout, stream_message, trip_view)
 from backend.agent.location import HERE
 from backend.auth import COOKIE_NAME, SESSION_AGE
-from backend.models import Chat, ChatMessage, User, utc_now
+from backend.models import ArchivedChat, HiddenOrder, Chat, ChatMessage, User, utc_now
 
 
 log = logging.getLogger(__name__)
@@ -74,9 +75,9 @@ def message_data(message: ChatMessage) -> dict:
     return {"id": message.id, "role": message.role, "content": message.content}
 
 
-def owned_chat(db, chat_id: str, user_id: str) -> Chat:
+def owned_chat(db, chat_id: str, user_id: str, include_archived: bool = False) -> Chat:
     item = db.scalar(select(Chat).where(Chat.id == chat_id, Chat.user_id == user_id))
-    if item is None:
+    if item is None or (not include_archived and db.get(ArchivedChat, chat_id)):
         raise HTTPException(404, "Чат не найден")
     return item
 
@@ -142,8 +143,12 @@ def set_cookie(request: Request, response: Response, user_id: str) -> None:
 
 
 @router.get("/", include_in_schema=False)
-def index() -> FileResponse:
-    return FileResponse(FRONTEND / "index.html")
+def index() -> HTMLResponse:
+    html = (FRONTEND / "index.html").read_text(encoding="utf-8")
+    for asset in ("style.css", "app.js"):
+        version = hashlib.sha256((FRONTEND / asset).read_bytes()).hexdigest()[:16]
+        html = html.replace(f'/static/{asset}"', f'/static/{asset}?v={version}"')
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/health")
@@ -190,6 +195,7 @@ def chat(request: Request, payload: ChatRequest) -> StreamingResponse:
             # Acquire SQLite's write lock before reading the title or adding a message.
             result = db.execute(update(Chat).where(
                 Chat.id == payload.session_id, Chat.user_id == user_id,
+                ~Chat.id.in_(select(ArchivedChat.chat_id)),
             ).values(updated_at=utc_now()))
             if result.rowcount == 0:
                 raise HTTPException(404, "Чат не найден")
@@ -251,7 +257,7 @@ def order(request: Request, order_id: str) -> dict:
         raise HTTPException(404, "Заказ не найден")
     try:
         with request.app.state.db() as db:
-            owned_chat(db, found.session_id, user_id)
+            owned_chat(db, found.session_id, user_id, include_archived=True)
     except HTTPException:
         raise HTTPException(404, "Заказ не найден") from None
     except SQLAlchemyError as exc:
@@ -264,7 +270,7 @@ def list_chats(request: Request) -> dict:
     user_id = require_user_id(request)
     try:
         with request.app.state.db() as db:
-            chats = db.scalars(select(Chat).where(Chat.user_id == user_id).order_by(Chat.updated_at.desc(), Chat.id.desc())).all()
+            chats = db.scalars(select(Chat).where(Chat.user_id == user_id, ~Chat.id.in_(select(ArchivedChat.chat_id))).order_by(Chat.updated_at.desc(), Chat.id.desc())).all()
             return {"chats": [chat_data(item) for item in chats]}
     except SQLAlchemyError as exc:
         raise HTTPException(503, "База данных недоступна") from exc
@@ -361,3 +367,73 @@ def rotate(request: Request) -> dict[str, str]:
         except SQLAlchemyError as exc:
             raise HTTPException(503, "База данных недоступна") from exc
         return {"user_id": user_id, "code": code}
+
+
+class CartAction(BaseModel):
+    version: int = Field(ge=0)
+
+
+@router.delete("/api/chats/{chat_id}")
+def delete_chat(request: Request, chat_id: str) -> dict:
+    check_origin(request)
+    user_id = require_user_id(request)
+    with request.app.state.db() as db:
+        owned_chat(db, chat_id, user_id, include_archived=True)
+        if not db.get(ArchivedChat, chat_id):
+            db.add(ArchivedChat(chat_id=chat_id))
+        db.execute(delete(ChatMessage).where(ChatMessage.chat_id == chat_id))
+        db.commit()
+    return {"ok": True}
+
+
+@router.get("/api/purchases")
+def purchases(request: Request) -> dict:
+    user_id = require_user_id(request)
+    with request.app.state.db() as db:
+        chats = db.scalars(select(Chat).where(Chat.user_id == user_id).order_by(Chat.updated_at.desc())).all()
+        hidden = set(db.scalars(select(HiddenOrder.order_id).where(HiddenOrder.user_id == user_id)))
+        archived = set(db.scalars(select(ArchivedChat.chat_id)))
+    carts, history = [], []
+    for chat in chats:
+        cart = account_cart(chat.id)
+        if cart["items"]:
+            carts.append({"chat_id": chat.id, "title": chat.title, "archived": chat.id in archived, **cart})
+        view = trip_view(chat.id)
+        for order_id in view["orders"]:
+            if order_id not in hidden and (order := get_order(order_id)):
+                history.append(order.model_dump(mode="json"))
+    history.sort(key=lambda o: o["created_at"], reverse=True)
+    return {"carts": carts, "orders": history}
+
+
+@router.post("/api/purchases/{chat_id}/pay")
+def pay_cart(request: Request, chat_id: str, payload: CartAction) -> dict:
+    return mutate_cart(request, chat_id, payload, pay=True)
+
+
+@router.delete("/api/purchases/{chat_id}")
+def remove_cart(request: Request, chat_id: str, payload: CartAction) -> dict:
+    return mutate_cart(request, chat_id, payload, pay=False)
+
+
+def mutate_cart(request: Request, chat_id: str, payload: CartAction, pay: bool) -> dict:
+    check_origin(request)
+    user_id = require_user_id(request)
+    with request.app.state.db() as db:
+        owned_chat(db, chat_id, user_id, include_archived=True)
+    try:
+        return change_account_cart(chat_id, payload.version, pay, user_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.delete("/api/orders/{order_id}")
+def hide_order(request: Request, order_id: str) -> dict:
+    check_origin(request)
+    user_id = require_user_id(request)
+    order(request, order_id)
+    with request.app.state.db() as db:
+        if not db.get(HiddenOrder, order_id):
+            db.add(HiddenOrder(order_id=order_id, user_id=user_id))
+            db.commit()
+    return {"ok": True}

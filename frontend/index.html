@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f4f3ee">
-  <title>Pulse — подбор поездки</title>
+  <title>Тихо — подбор поездки</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
 </head>
@@ -17,6 +17,7 @@
         <p class="eyebrow">ВАШИ ЧАТЫ</p>
         <div id="chat-list" aria-label="Список чатов"></div>
       </div>
+      <div class="sidebar-actions">
       <button id="profile-toggle" class="profile-toggle" type="button" aria-label="Открыть профиль" aria-controls="account-panel" aria-expanded="false" title="Профиль">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="8" r="3.5"></circle>
@@ -24,6 +25,11 @@
         </svg>
         <span>Профиль</span>
       </button>
+      <button id="basket-toggle" class="basket-toggle" type="button" aria-label="Открыть корзину" title="Корзина" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h2l3 12h10l3-9H6"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg>
+        <span id="basket-count" class="basket-count" hidden></span>
+      </button>
+      </div>
     </aside>
 
     <main class="assistant" aria-label="Помощник">
@@ -48,8 +54,10 @@
       <form id="chat-form" class="chat-form-preview">
         <textarea id="chat-input" rows="2" maxlength="5000" aria-label="Сообщение" placeholder="Куда, когда и с кем хотите поехать?" required></textarea>
         <button id="chat-send" class="send" type="submit" aria-label="Отправить сообщение" disabled>↑</button>
+        <button id="chat-stop" class="send" type="button" aria-label="Остановить ожидание ответа" title="Остановить ожидание ответа" hidden>■</button>
       </form>
       <p id="chat-error" class="chat-error" role="status" hidden></p>
+      <button id="chat-reload" class="text-link" type="button" hidden>Обновить чат</button>
       <p class="fineprint assistant-note">ИИ помогает выбрать, решение за вами. Отели — OpenStreetMap, перелёты — цены Aviasales, поезда — Яндекс Расписания или демо, цены отелей и такси — демо.</p>
     </main>
 
@@ -62,11 +70,7 @@
         <button id="trip-close" class="trip-close" type="button" aria-label="Скрыть поездку">×</button>
       </div>
       <div class="trip-body">
-        <p id="trip-empty" class="trip-empty">Здесь появятся готовые варианты поездки, маршрут по часам, корзина и заказы.</p>
-        <section id="trip-orders-section" class="trip-section" hidden>
-          <h3>Заказы</h3>
-          <div id="trip-orders"></div>
-        </section>
+        <p id="trip-empty" class="trip-empty">Расскажите о планах в чате. Здесь появятся варианты, детали и маршрут вашей поездки.</p>
         <section id="trip-cart-section" class="trip-section" hidden>
           <h3>Ваша поездка</h3>
           <div id="trip-cart"></div>
@@ -86,6 +90,10 @@
           <div id="flight-list" class="flight-list"></div>
         </section>
         <p class="attribution">Отели, расстояния и маршруты: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">участники OpenStreetMap</a>, ODbL. Перелёты — кэш цен Aviasales. Расписание поездов — <a href="https://rasp.yandex.ru/" target="_blank" rel="noopener noreferrer">Яндекс Расписания</a> (без ключа — демо-расписание). Погода — <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>. Фото — сайты отелей и Wikimedia Commons. Цены отелей и такси, наличие, питание и отмена — демо.</p>
+      </div>
+      <div id="trip-checkout" class="trip-checkout" hidden>
+        <div><span class="muted">Выбранная поездка</span><strong id="trip-checkout-total"></strong></div>
+        <button id="open-basket" class="choose-hotel" type="button">В корзину →</button>
       </div>
     </aside>
   </div>
@@ -107,6 +115,11 @@
       <button id="rotate" type="button">Перевыпустить код</button>
       <button id="open-login" type="button" class="secondary">Войти в существующий аккаунт</button>
       <p id="message" role="status" aria-live="polite"></p>
+      <section class="profile-orders" aria-labelledby="profile-orders-title">
+        <h3 id="profile-orders-title">Мои заказы</h3>
+        <p class="muted">Оформленные поездки из всех чатов</p>
+        <div id="profile-orders"></div>
+      </section>
       <div class="memory-box">
         <p class="label">Что агент помнит о вас</p>
         <p id="memory-text" class="memory-text">Пока ничего: память появится после первой поездки.</p>
@@ -125,5 +138,12 @@
       </form>
     </div>
   </section>
+  <dialog id="basket-dialog" class="basket-dialog" aria-labelledby="basket-title">
+    <div class="basket-head"><div><p class="eyebrow">ВСЁ ДЛЯ ПУТЕШЕСТВИЯ</p><h2 id="basket-title">Корзина</h2></div><button id="basket-close" class="icon-button" type="button" aria-label="Закрыть корзину">×</button></div>
+    <p class="basket-intro">Выбранные поездки из всех чатов. Проверьте состав перед оформлением.</p>
+    <p id="basket-status" role="status" aria-live="polite"></p>
+    <div id="basket-list"></div>
+    <p class="basket-demo">Демонстрационная оплата — деньги не списываются. Оформленные заказы появятся в профиле.</p>
+  </dialog>
 </body>
 </html>

@@ -40,6 +40,14 @@ def create_app(database_url: str | None = None, secret_key: str | None = None) -
     app = FastAPI(title="Pulse", version="1.0.0", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.auth = AuthState(secret_key or auth_key())
     app.state.db = make_session_factory(database_url)
+
+    @app.middleware("http")
+    async def revalidate_frontend(request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     app.include_router(router)
     app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent.parent / "frontend"), name="static")
     return app
