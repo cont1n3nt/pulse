@@ -2,7 +2,6 @@
 .venv/
 __pycache__/
 *.pyc
-*.lock
 *.env
 *.sqlite3
 

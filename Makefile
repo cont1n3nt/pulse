@@ -1,5 +1,8 @@
 # Короткие команды для запуска и проверки. Всё то же можно выполнить напрямую через docker compose.
-.PHONY: up down restart logs health evals cli env reset
+.PHONY: up down restart logs health evals test seed secrets env reset
+
+LOCATION ?= sochi
+JURY_AGE_KEY = age1932fu7f70rwyfhaxflyfszz4gf6avxwc95wc0yjwm6zns9tspycqpgdnc0
 
 up:            ## собрать и запустить на http://localhost:8080
 	docker compose up --build -d
@@ -19,8 +22,14 @@ health:        ## проверить, что сервис жив
 evals:         ## прогнать сценарии агента на настоящей модели (отчёт в evals/results/)
 	docker compose run --rm -v "$(CURDIR)/evals:/app/evals" pulse python -m evals.run
 
-cli:           ## поговорить с агентом в терминале, без веб-интерфейса
-	docker compose run --rm -it -v "$(CURDIR)/docs:/app/docs" pulse python -m docs.cli
+test:          ## юнит-тесты детерминированного ядра: пакеты, проверка поездки, изменение заказа (без сети и модели)
+	uv run pytest -q
+
+seed:          ## заново выгрузить отели локации из OpenStreetMap: make seed LOCATION=kaliningrad
+	uv run python scripts/fetch_osm.py $(LOCATION)
+
+secrets:       ## зашифровать .env для жюри в secrets.env.age (нужен age)
+	age -r $(JURY_AGE_KEY) -o secrets.env.age .env
 
 env:           ## создать .env из примера, если его ещё нет
 	@test -f .env || cp .env.example .env

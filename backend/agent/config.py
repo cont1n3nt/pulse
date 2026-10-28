@@ -1,4 +1,4 @@
-"""Все настройки из окружения в одном месте."""
+"""Все настройки из окружения в одном месте. Пустое значение в .env — то же, что не задано."""
 
 import os
 from pathlib import Path
@@ -7,27 +7,35 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "openrouter/free")
+
+def env(name: str, default: str = "") -> str:
+    return os.getenv(name) or default
+
+
+# по умолчанию — связка, на которой прогнаны evals (README, «Модель»)
+LLM_BASE_URL = env("LLM_BASE_URL", "https://api.smartapi.pro/v1")
+LLM_API_KEY = env("LLM_API_KEY")
+LLM_MODEL = env("LLM_MODEL", "claude-haiku-5-5")
 # Запасные модели через запятую: при ошибке основной (лимит 429, сбой провайдера) запрос уходит
 # следующей. Тот же провайдер и ключ.
-LLM_FALLBACK_MODELS = [m.strip() for m in os.getenv("LLM_FALLBACK_MODELS", "").split(",") if m.strip()]
+LLM_FALLBACK_MODELS = [m.strip() for m in env("LLM_FALLBACK_MODELS").split(",") if m.strip()]
 # Финальный ответ модели — структура (текст, рекомендация, подсказки для кнопок), а не свободный
 # текст. Отключите, если модель плохо вызывает инструменты: ответ станет обычным текстом.
-STRUCTURED_REPLY = os.getenv("STRUCTURED_REPLY", "1") not in ("0", "false", "no")
+STRUCTURED_REPLY = env("STRUCTURED_REPLY", "1") not in ("0", "false", "no")
 
-TRAVELPAYOUTS_TOKEN = os.getenv("TRAVELPAYOUTS_TOKEN", "")
+TRAVELPAYOUTS_TOKEN = env("TRAVELPAYOUTS_TOKEN")
 # Яндекс Расписания: настоящее расписание поездов. Без ключа — демо-расписание
-YANDEX_RASP_KEY = os.getenv("YANDEX_RASP_KEY", "")
-HTTP_TIMEOUT =float(os.getenv("HTTP_TIMEOUT", "20"))
+YANDEX_RASP_KEY = env("YANDEX_RASP_KEY")
+HTTP_TIMEOUT = float(env("HTTP_TIMEOUT", "20"))
 # Максимум шагов графа за один запрос: аварийный предохранитель. Один цикл «модель → инструмент»
 # занимает 3–4 шага (модель, инструменты, узлы middleware); основной лимит — 10 вызовов модели
 # в guardrails.py, он завершает ход корректно. Этот должен быть с запасом выше.
-AGENT_RECURSION_LIMIT = int(os.getenv("AGENT_RECURSION_LIMIT", "60"))
+AGENT_RECURSION_LIMIT = int(env("AGENT_RECURSION_LIMIT", "60"))
 
-SEED_DIR = Path(os.getenv("SEED_DIR", Path(__file__).resolve().parent.parent / "seed"))
-DATA_DIR = Path(os.getenv("DATA_DIR", Path(__file__).resolve().parent.parent / "data"))
+SEED_DIR = Path(env("SEED_DIR", str(Path(__file__).resolve().parent.parent / "seed")))
+DATA_DIR = Path(env("DATA_DIR", str(Path(__file__).resolve().parent.parent / "data")))
+# Локация агента: папка backend/seed/<LOCATION> с location.json и hotels.json (см. location.py)
+LOCATION = env("PULSE_LOCATION", "sochi")
 
 
 def make_llm(model: str | None = None):
