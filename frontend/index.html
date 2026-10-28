@@ -105,25 +105,39 @@
       <button id="close-panel" class="close-panel" type="button" aria-label="Свернуть панель профиля" title="Свернуть">×</button>
     </div>
     <div id="account-view">
+      <div class="account-tabs" role="tablist" aria-label="Разделы аккаунта">
+        <button id="tab-code" type="button" role="tab" aria-selected="true" aria-controls="pane-code">Код</button>
+        <button id="tab-orders" type="button" role="tab" aria-selected="false" aria-controls="pane-orders" tabindex="-1">Мои заказы</button>
+        <button id="tab-memory" type="button" role="tab" aria-selected="false" aria-controls="pane-memory" tabindex="-1">Память</button>
+      </div>
+      <section id="pane-code" role="tabpanel" aria-labelledby="tab-code" tabindex="0">
       <p class="panel-intro">Сохраните код доступа, чтобы вернуться в аккаунт с другого устройства.</p>
       <p class="label">Ваш ID</p>
       <p id="user-id" class="value">Загрузка…</p>
       <p class="label">Код доступа</p>
       <button id="code-box" class="code-box" type="button" aria-live="polite" title="Нажмите, чтобы скопировать код" disabled>Загрузка…</button>
-      <button id="show-code" type="button" hidden>Показать код</button>
-      <button id="rotate" type="button">Перевыпустить код</button>
+      <div class="account-actions"><button id="show-code" type="button" hidden>Показать код</button>
+      <button id="rotate" type="button">Перевыпустить код</button></div>
       <button id="open-login" type="button" class="secondary">Войти в существующий аккаунт</button>
       <p id="message" role="status" aria-live="polite"></p>
-      <section class="profile-orders" aria-labelledby="profile-orders-title">
-        <h3 id="profile-orders-title">Мои заказы</h3>
+      </section>
+      <section id="pane-orders" class="profile-orders" role="tabpanel" aria-labelledby="tab-orders" tabindex="0" hidden>
         <p class="muted">Оформленные поездки из всех чатов</p>
         <div id="profile-orders"></div>
       </section>
-      <div class="memory-box">
-        <p class="label">Что агент помнит о вас</p>
-        <p id="memory-text" class="memory-text">Пока ничего: память появится после первой поездки.</p>
+      <section id="pane-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" hidden>
+        <p class="panel-intro">Предпочтения для следующих поездок. Можно исправить или удалить — агент продолжит запоминать новое.</p>
+        <label class="label" for="memory-text">Что агент помнит о вас</label>
+        <textarea id="memory-text" rows="5" aria-describedby="memory-count memory-status" disabled placeholder="Например: предпочитаю прямые рейсы и тихие отели."></textarea>
+        <div class="memory-meta"><span id="memory-count">0 / 512</span><span>Не указывайте пароли и данные карт</span></div>
+        <div class="account-actions">
+          <button id="save-memory" type="button" disabled>Сохранить</button>
+          <button id="reset-memory" type="button" class="secondary" disabled>Отменить</button>
+        </div>
+        <p id="memory-status" role="status" aria-live="polite"></p>
+        <button id="retry-memory" type="button" class="secondary" hidden>Повторить загрузку</button>
         <button id="forget" type="button" class="secondary" hidden>Забыть всё</button>
-      </div>
+      </section>
     </div>
     <div id="login-view" hidden>
       <p class="panel-intro">Введите сохранённый код доступа. Аккаунт на этом устройстве переключится на найденный.</p>
