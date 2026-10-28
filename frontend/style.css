@@ -90,6 +90,7 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 .trip:hover { background: #edf1e9; }
 .trip.active { background: var(--mint); }
 .trip small { display: block; margin-top: 0.3rem; color: #7c8d87; font-size: 0.65rem; }
+.trip small.thinking { color: var(--accent); }
 .new-chat, .chats-toggle {
   flex-shrink: 0;
   padding: 0.65rem;
