@@ -684,3 +684,35 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .account-panel button:disabled { cursor: default; }
 .account-panel #memory-text:focus { border-color: var(--accent); }
 @media (pointer: coarse) { .account-panel #memory-text { font-size: 16px; } }
+
+/* Account order timeline only. */
+#profile-orders .history-filters { display: flex; gap: .3rem; margin-bottom: .8rem; }
+.account-panel #profile-orders .history-filter { margin: 0; background: var(--bg); color: var(--ink-soft); border: 1px solid var(--line-soft); }
+.account-panel #profile-orders .history-filter[aria-pressed="true"] { background: var(--mint); color: var(--accent-ink); border-color: var(--accent); }
+.account-panel #profile-orders .history-filter[data-mode="past"][aria-pressed="true"] { background: #e8e8e3; color: #555f5b; border-color: #a4aaa6; }
+#profile-orders .history-month { margin: .9rem 0 .3rem; font-size: .75rem; font-weight: 500; text-transform: capitalize; color: var(--ink-soft); }
+#profile-orders .history-trip { border-bottom: 1px solid var(--line-soft); color: var(--ink); }
+#profile-orders .history-summary { display: grid; grid-template-columns: 5rem minmax(0, 1fr) .7rem; gap: .6rem; align-items: start; padding: .75rem .2rem; cursor: pointer; list-style: none; }
+#profile-orders .history-summary::-webkit-details-marker { display: none; }
+#profile-orders .history-date { font-size: .72rem; line-height: 1.5; color: var(--accent-ink); }
+#profile-orders .history-info { display: grid; gap: .25rem; font-size: .8rem; line-height: 1.4; }
+#profile-orders .history-info strong { font-weight: 500; }
+#profile-orders .history-status { color: var(--ink-soft); font-size: .7rem; }
+#profile-orders .is-past { background: #f4f4f0; color: #68716c; }
+#profile-orders .is-past .history-date, #profile-orders .is-past .history-status { color: #707873; }
+#profile-orders .history-body { padding: 0 .6rem .65rem; font-size: .75rem; }
+#profile-orders details[open] .history-chevron { transform: rotate(180deg); }
+.account-panel #profile-orders .history-remove { width: auto; padding: .3rem 0; background: transparent; color: var(--ink-soft); text-decoration: underline; font-size: .7rem; }
+#profile-orders summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Keep account navigation stationary while the order timeline scrolls. */
+.account-panel:has(#account-view:not([hidden]) #pane-orders:not([hidden])) { display: flex; flex-direction: column; overflow: hidden; }
+.account-panel:has(#pane-orders:not([hidden])) .panel-header { flex-shrink: 0; }
+.account-panel:has(#pane-orders:not([hidden])) #account-view,
+.account-panel #pane-orders,
+.account-panel #profile-orders { display: flex; flex-direction: column; min-height: 0; }
+.account-panel:has(#pane-orders:not([hidden])) .account-tabs,
+#pane-orders > .muted,
+#profile-orders .history-filters { flex-shrink: 0; }
+#profile-orders .history-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #afbeb6 transparent; }
+#profile-orders .history-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
