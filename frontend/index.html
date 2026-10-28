@@ -54,8 +54,10 @@
       <form id="chat-form" class="chat-form-preview">
         <textarea id="chat-input" rows="2" maxlength="5000" aria-label="Сообщение" placeholder="Куда, когда и с кем хотите поехать?" required></textarea>
         <button id="chat-send" class="send" type="submit" aria-label="Отправить сообщение" disabled>↑</button>
+        <button id="chat-stop" class="send" type="button" aria-label="Остановить ожидание ответа" title="Остановить ожидание ответа" hidden>■</button>
       </form>
       <p id="chat-error" class="chat-error" role="status" hidden></p>
+      <button id="chat-reload" class="text-link" type="button" hidden>Обновить чат</button>
       <p class="fineprint assistant-note">ИИ помогает выбрать, решение за вами. Отели — OpenStreetMap, перелёты — цены Aviasales, цены отелей и такси — демо.</p>
     </main>
 
