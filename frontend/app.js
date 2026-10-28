@@ -17,6 +17,8 @@ const panelDrag = document.querySelector('#panel-drag');
 const chatForm = document.querySelector('#chat-form');
 const chatInput = document.querySelector('#chat-input');
 const chatSend = document.querySelector('#chat-send');
+const chatStop = document.querySelector('#chat-stop');
+const chatReload = document.querySelector('#chat-reload');
 const chatMessages = document.querySelector('#chat-messages');
 const chatEmpty = document.querySelector('#chat-empty');
 const chatError = document.querySelector('#chat-error');
@@ -34,7 +36,6 @@ const hotelList = document.querySelector('#hotel-list');
 const hotelCount = document.querySelector('#hotel-count');
 const flightList = document.querySelector('#flight-list');
 const tripCart = document.querySelector('#trip-cart');
-const tripOrders = document.querySelector('#trip-orders');
 const packageList = document.querySelector('#package-list');
 const packageNote = document.querySelector('#package-note');
 const weatherBox = document.querySelector('#weather');
@@ -48,12 +49,14 @@ const sections = {
   hotels: document.querySelector('#trip-hotels-section'),
   flights: document.querySelector('#trip-flights-section'),
   cart: document.querySelector('#trip-cart-section'),
-  orders: document.querySelector('#trip-orders-section'),
 };
 let activeUserId = null;
 let activeChatId = null;
 let chats = [];
 let chatBusy = true;
+let activeStream = null;
+const API_TIMEOUT_MS = 20000;
+const STREAM_IDLE_TIMEOUT_MS = 120000;
 let accountEpoch = 0;
 let currentCode = null;
 let visible = false;
@@ -134,7 +137,7 @@ function setLoginMode(active) {
 profileToggle.addEventListener('click', () => {
   const opening = accountPanel.hidden;
   setPanelOpen(opening);
-  if (opening) loadMemory();
+  if (opening) { loadMemory(); refreshPurchases(); }
 });
 
 // Долговременная память агента: пользователь видит, что о нём помнят, и может стереть
@@ -161,20 +164,37 @@ forgetButton.addEventListener('click', async () => {
 closePanelButton.addEventListener('click', () => setPanelOpen(false));
 
 async function api(path, options = {}) {
-  const response = await fetch(path, { credentials: 'same-origin', ...options });
-  const data = await response.json();
-  if (!response.ok) {
-    const error = new Error(data.detail || 'Не удалось выполнить запрос');
-    error.status = response.status;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  try {
+    const response = await fetch(path, { credentials: 'same-origin', ...options, signal: controller.signal });
+    const data = await response.json();
+    if (!response.ok) {
+      const error = new Error(data.detail || 'Не удалось выполнить запрос');
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      error = new Error('Сервер долго не отвечает. Попробуйте ещё раз.');
+      error.code = 'REQUEST_TIMEOUT';
+    }
+    // Missing/partial responses cannot tell us whether a write reached the server.
+    error.resultUnknown = !error.status && !['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase());
     throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  return data;
 }
 
 function setChatBusy(busy) {
   chatBusy = busy;
   newChatButton.disabled = !activeUserId || busy;
   chatSend.disabled = !activeChatId || busy;
+  chatSend.hidden = Boolean(activeStream);
+  chatStop.hidden = !activeStream;
+  chatReload.disabled = busy;
   chatInput.disabled = !activeChatId || busy;
   chatList.querySelectorAll('button').forEach((button) => { button.disabled = busy; });
   document.querySelectorAll('.suggestions .chip, .choose-hotel, .choose-package, .flex-button').forEach((button) => { button.disabled = !activeChatId || busy; });
@@ -220,7 +240,15 @@ function renderChatList() {
     button.append(date);
     button.disabled = chatBusy;
     button.addEventListener('click', () => selectChat(item.id));
-    chatList.append(button);
+    const row = el('div', 'chat-list-row');
+    const remove = el('button', 'delete-chat', '×');
+    remove.type = 'button';
+    remove.title = 'Удалить чат';
+    remove.setAttribute('aria-label', `Удалить чат «${item.title}»`);
+    remove.disabled = chatBusy;
+    remove.addEventListener('click', () => deleteChat(item));
+    row.append(button, remove);
+    chatList.append(row);
   }
 }
 
@@ -494,6 +522,9 @@ function itemRows(items) {
 // В панели — с маршрутом по часам, где проблемы стоят у своего шага; в чате — коротко
 function cartContent(cart, withTimeline = false) {
   const box = el('div', 'cart-box');
+  if (cart.replaces) box.append(el('p', 'card-title', `Перенос заказа ${cart.replaces}`),
+    el('p', 'muted', 'Прежний заказ отменится после подтверждения оплаты нового.'));
+  if (cart.extends) box.append(el('p', 'card-title', `Дополнение к заказу ${cart.extends}`));
   if (!cart.items.length) {
     box.append(el('p', 'muted', 'Корзина пуста'));
   } else {
@@ -553,8 +584,8 @@ function renderTrip() {
   tripCart.replaceChildren(...(cart?.items.length ? [cartContent(cart, true)] : []));
   sections.cart.hidden = !cart?.items.length;
 
-  tripOrders.replaceChildren(...orders.map(orderContent));
-  sections.orders.hidden = !orders.length;
+  document.querySelector('#trip-checkout').hidden = !cart?.items.length;
+  document.querySelector('#trip-checkout-total').textContent = rub(cart?.total_rub ?? 0);
 
   const empty = !packages.length && !hotels.length && !flights.length && !cart?.items.length && !orders.length;
   tripEmpty.hidden = !empty;
@@ -592,6 +623,7 @@ function clearChat() {
   chatInput.value = '';
   resizeChatInput();
   chatError.hidden = true;
+  chatReload.hidden = true;
   resetTrip(null);
   setSuggestions(null);
 }
@@ -729,19 +761,28 @@ function closePendingConfirms() {
   }
 }
 
-async function readEvents(response, onEvent) {
+async function readEvents(response, onEvent, onProgress) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop();
-    for (const part of parts) {
-      if (part.startsWith('data: ')) onEvent(JSON.parse(part.slice(6)));
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error('Ответ прервался до завершения. Обновите чат, чтобы проверить результат.');
+      onProgress();
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split(/\r?\n\r?\n/);
+      buffer = parts.pop();
+      for (const part of parts) {
+        if (!part.startsWith('data: ')) continue;
+        const event = JSON.parse(part.slice(6));
+        onEvent(event);
+        if (event.type === 'done') return;
+      }
     }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
 }
 
@@ -771,7 +812,8 @@ function handleEvent(reply, event) {
       tripView.flights = event.items;
       renderTrip();
     } else if (event.block === 'cart') {
-      tripView.cart = { items: event.items, total_rub: event.total_rub, issues: event.issues, itinerary: event.itinerary };
+      tripView.cart = { items: event.items, total_rub: event.total_rub, issues: event.issues,
+        itinerary: event.itinerary, replaces: event.replaces, extends: event.extends };
       renderTrip();
       refreshChatPackages();
       showCartInChat(reply, tripView.cart);
@@ -782,7 +824,8 @@ function handleEvent(reply, event) {
       renderTrip();
       // корзина оформлена: её карточка в чате больше не актуальна
       chatMessages.querySelectorAll('.chat-card.cart').forEach((card) => card.remove());
-      reply.addCard(chatCard('order', orderContent(event.order)));
+      const link = actionButton('Заказ оформлен · Открыть профиль', () => { setPanelOpen(true); refreshPurchases(); });
+      reply.addCard(link);
     }
   } else if (event.type === 'confirm') {
     showConfirm((card) => reply.addCard(card), event);
@@ -800,7 +843,20 @@ async function streamAgent(url, payload) {
   if (chatBusy || !activeChatId) return;
   const epoch = accountEpoch;
   const chatId = activeChatId;
+  const stream = { controller: new AbortController(), timedOut: false };
+  activeStream = stream;
+  const isCurrent = () => activeStream === stream && epoch === accountEpoch && chatId === activeChatId;
+  let timeout;
+  const resetTimeout = () => {
+    clearTimeout(timeout);
+    if (!stream.controller.signal.aborted) timeout = setTimeout(() => {
+      stream.timedOut = true;
+      stream.controller.abort();
+    }, STREAM_IDLE_TIMEOUT_MS);
+  };
+  resetTimeout();
   chatError.hidden = true;
+  chatReload.hidden = true;
   setChatBusy(true);
   const reply = addBotReply();
   try {
@@ -809,25 +865,54 @@ async function streamAgent(url, payload) {
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: stream.controller.signal,
     });
+    resetTimeout();
     if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
+      const data = await response.json();
       throw new Error(data.detail || 'Не удалось отправить сообщение');
     }
     await readEvents(response, (event) => {
-      // пользователь переключил чат или аккаунт: этот поток больше не показываем
-      if (epoch === accountEpoch && chatId === activeChatId) handleEvent(reply, event);
-    });
+      if (isCurrent() && !stream.controller.signal.aborted) handleEvent(reply, event);
+    }, resetTimeout);
   } catch (error) {
-    if (epoch === accountEpoch) showChatError(error);
+    if (isCurrent()) {
+      if (stream.controller.signal.aborted) error = new Error(stream.timedOut
+        ? 'Две минуты нет новых данных. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
+        : 'Ожидание остановлено. Запрос может ещё выполняться. Обновите чат перед повторной отправкой.');
+      showChatError(error);
+      chatReload.hidden = false;
+    }
   } finally {
+    clearTimeout(timeout);
     reply.finish();
-    if (epoch === accountEpoch) {
+    if (isCurrent()) {
+      activeStream = null;
       setChatBusy(false);
       chatInput.focus();
+      refreshPurchases();
     }
   }
 }
+
+chatStop.addEventListener('click', () => activeStream?.controller.abort());
+chatReload.addEventListener('click', async () => {
+  if (chatBusy || !activeChatId) return;
+  const epoch = accountEpoch;
+  const chatId = activeChatId;
+  setChatBusy(true);
+  try {
+    const data = await api(`/api/chats/${encodeURIComponent(chatId)}`);
+    if (epoch === accountEpoch && chatId === activeChatId) displayChat(data);
+  } catch (error) {
+    if (epoch === accountEpoch && chatId === activeChatId) showChatError(error);
+  } finally {
+    if (epoch === accountEpoch && chatId === activeChatId) {
+      setChatBusy(false);
+      refreshPurchases();
+    }
+  }
+});
 
 function sendMessage(text) {
   const message = text.trim();
@@ -856,9 +941,15 @@ function displayChat(data) {
 }
 
 async function loadUserChats(userId) {
+  activeStream?.controller.abort();
+  activeStream = null;
   activeUserId = userId;
   const epoch = ++accountEpoch;
   chats = [];
+  purchases = { carts: [], orders: [] };
+  purchasesError = '';
+  setBasketActionMessage('');
+  paintPurchases();
   clearChat();
   chatTitle.textContent = 'Загрузка чатов…';
   renderChatList();
@@ -873,6 +964,7 @@ async function loadUserChats(userId) {
     if (epoch !== accountEpoch) return;
     if (!chats.length) chats = [data.chat];
     displayChat(data);
+    refreshPurchases();
   } catch (error) {
     if (epoch === accountEpoch) {
       chatTitle.textContent = 'Чаты';
@@ -996,6 +1088,8 @@ async function initialize() {
     render(await api('/api/auth/me'));
   } catch (error) {
     if (error.status !== 401) {
+      chatTitle.textContent = 'Не удалось загрузить чаты';
+      showChatError(error);
       setPanelOpen(true);
       messageEl.textContent = error.message;
       return;
@@ -1003,6 +1097,8 @@ async function initialize() {
     try {
       render(await api('/api/auth/guest', { method: 'POST' }));
     } catch (guestError) {
+      chatTitle.textContent = 'Не удалось загрузить чаты';
+      showChatError(guestError);
       setPanelOpen(true);
       messageEl.textContent = guestError.message;
     }
@@ -1077,5 +1173,169 @@ document.addEventListener('keydown', (event) => {
   if (!loginView.hidden) setLoginMode(false);
   else setPanelOpen(false);
 });
+
+const basketDialog = document.querySelector('#basket-dialog');
+const basketList = document.querySelector('#basket-list');
+const basketStatus = document.querySelector('#basket-status');
+let purchases = { carts: [], orders: [] };
+let purchasesRequest = 0;
+let purchaseBusy = false;
+let basketActionMessage = '';
+let purchasesError = '';
+
+function renderBasketStatus() {
+  // A refresh must not erase a payment result or a rejected cart action.
+  basketStatus.textContent = [basketActionMessage, purchasesError].filter(Boolean).join(' ');
+}
+
+function setBasketActionMessage(message) {
+  basketActionMessage = message;
+  renderBasketStatus();
+}
+
+function actionButton(text, action, className = 'cancel') {
+  const button = el('button', className, text);
+  button.type = 'button';
+  button.addEventListener('click', action);
+  return button;
+}
+
+async function deleteChat(item) {
+  if (chatBusy || !confirm(`Удалить чат «${item.title}»? Выбранные поездки и заказы сохранятся в корзине и профиле.`)) return;
+  const epoch = accountEpoch;
+  setChatBusy(true);
+  try {
+    await api(`/api/chats/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
+    if (epoch !== accountEpoch) return;
+    chats = chats.filter(chat => chat.id !== item.id);
+    if (item.id === activeChatId) {
+      clearChat();
+      const data = chats.length ? await api(`/api/chats/${encodeURIComponent(chats[0].id)}`)
+        : await api('/api/chats', { method: 'POST' });
+      if (epoch !== accountEpoch) return;
+      if (!chats.length) chats = [data.chat];
+      displayChat(data);
+    }
+    renderChatList();
+    refreshPurchases();
+  } catch (error) { if (epoch === accountEpoch) showChatError(error); }
+  finally { if (epoch === accountEpoch) setChatBusy(false); }
+}
+
+async function refreshPurchases() {
+  if (!activeUserId) return;
+  const epoch = accountEpoch;
+  const request = ++purchasesRequest;
+  try {
+    const data = await api('/api/purchases');
+    if (epoch !== accountEpoch || request !== purchasesRequest) return;
+    purchases = data;
+    purchasesError = '';
+    renderBasketStatus();
+    paintPurchases();
+  } catch (error) {
+    if (epoch !== accountEpoch || request !== purchasesRequest) return;
+    purchasesError = error.message;
+    renderBasketStatus();
+    document.querySelector('#profile-orders').replaceChildren(
+      el('p', 'form-error', 'Не удалось загрузить заказы.'), actionButton('Повторить', refreshPurchases));
+  }
+}
+
+function paintPurchases() {
+  const badge = document.querySelector('#basket-count');
+  badge.textContent = purchases.carts.length;
+  badge.hidden = !purchases.carts.length;
+  document.querySelector('#basket-toggle').setAttribute('aria-label', `Корзина: ${purchases.carts.length} поездок`);
+  basketList.replaceChildren();
+  if (!purchases.carts.length) basketList.append(el('p', 'basket-empty', 'Здесь пока пусто. Выберите понравившийся вариант в чате — он появится в корзине.'));
+  for (const cart of purchases.carts) {
+    const card = el('article', 'purchase-card');
+    card.append(el('h3', '', cart.title), cartContent(cart));
+    const actions = el('div', 'confirm-actions');
+    const pay = actionButton(`Оплатить ${rub(cart.total_rub)}`, () => purchaseAction(cart, true), 'pay');
+    pay.disabled = purchaseBusy || chatBusy || cart.issues.some(i => i.severity === 'blocker');
+    const remove = actionButton('Удалить', () => purchaseAction(cart, false), 'cancel danger');
+    remove.disabled = purchaseBusy || chatBusy;
+    actions.append(pay, remove);
+    if (!cart.archived) {
+      const open = actionButton('Перейти в чат', () => { basketDialog.close(); selectChat(cart.chat_id); }, 'text-link');
+      open.disabled = purchaseBusy || chatBusy;
+      actions.append(open);
+    }
+    card.append(actions);
+    basketList.append(card);
+  }
+  const history = document.querySelector('#profile-orders');
+  history.replaceChildren();
+  if (!purchases.orders.length) history.append(el('p', 'muted', 'Пока нет оформленных заказов.'));
+  for (const order of purchases.orders) {
+    const card = orderContent(order);
+    card.append(actionButton('Удалить из истории', async () => {
+      if (!confirm('Удалить заказ из истории? Это не отменяет оформленный заказ.')) return;
+      try {
+        await api(`/api/orders/${encodeURIComponent(order.id)}`, { method: 'DELETE' });
+        await refreshPurchases();
+      } catch (error) { messageEl.textContent = error.message; }
+    }, 'secondary'));
+    history.append(card);
+  }
+}
+
+async function purchaseAction(cart, pay) {
+  if (purchaseBusy || chatBusy) return;
+  const paymentPrompt = cart.replaces
+    ? `Перенести заказ ${cart.replaces} за ${rub(cart.total_rub)}? Прежний заказ будет отменён.`
+    : cart.extends ? `Оформить дополнение к заказу ${cart.extends} за ${rub(cart.total_rub)}?`
+      : `Оформить поездку за ${rub(cart.total_rub)}?`;
+  if (!confirm(pay ? `${paymentPrompt} Оплата демонстрационная, деньги не спишутся.` : 'Удалить эту поездку из корзины?')) return;
+  const epoch = accountEpoch;
+  purchaseBusy = true;
+  setChatBusy(true);
+  paintPurchases();
+  setBasketActionMessage(pay ? 'Оформляем поездку…' : 'Удаляем…');
+  try {
+    const data = await api(`/api/purchases/${encodeURIComponent(cart.chat_id)}${pay ? '/pay' : ''}`, {
+      method: pay ? 'POST' : 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version: cart.version }),
+    });
+    if (epoch !== accountEpoch) return;
+    setBasketActionMessage(pay ? `Заказ ${data.order.id} оформлен и сохранён в профиле. Деньги не списаны.` : 'Поездка удалена из корзины.');
+    if (activeChatId === cart.chat_id) {
+      try {
+        const chat = await api(`/api/chats/${encodeURIComponent(cart.chat_id)}`);
+        if (epoch === accountEpoch && activeChatId === cart.chat_id) displayChat(chat);
+      } catch {
+        if (epoch === accountEpoch && activeChatId === cart.chat_id) {
+          showChatError(new Error('Операция выполнена, но не удалось обновить чат. Обновите его ещё раз.'));
+          chatReload.hidden = false;
+        }
+      }
+    }
+  } catch (error) {
+    if (epoch === accountEpoch) {
+      setBasketActionMessage(error.resultUnknown
+        ? 'Не удалось получить результат операции. Проверьте корзину и заказы перед повтором.'
+        : error.message);
+      if (error.resultUnknown && activeChatId === cart.chat_id) chatReload.hidden = false;
+    }
+  } finally {
+    purchaseBusy = false;
+    if (epoch === accountEpoch) { setChatBusy(false); await refreshPurchases(); }
+  }
+}
+
+function openBasket() {
+  setPanelOpen(false);
+  setTripOpen(false);
+  setBasketActionMessage('');
+  paintPurchases();
+  basketDialog.showModal();
+  refreshPurchases();
+}
+document.querySelector('#basket-toggle').addEventListener('click', openBasket);
+document.querySelector('#open-basket').addEventListener('click', openBasket);
+document.querySelector('#basket-close').addEventListener('click', () => basketDialog.close());
+basketDialog.addEventListener('click', event => { if (event.target === basketDialog && event.clientX < basketDialog.getBoundingClientRect().left) basketDialog.close(); });
 loadLocation();
 initialize();

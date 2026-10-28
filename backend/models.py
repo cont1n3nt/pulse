@@ -35,3 +35,15 @@ class ChatMessage(Base):
     role: Mapped[str]
     content: Mapped[str]
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+
+class ArchivedChat(Base):
+    """Keep ownership of purchases when the conversation is removed."""
+    __tablename__ = "archived_chats"
+    chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id"), primary_key=True)
+
+
+class HiddenOrder(Base):
+    __tablename__ = "hidden_orders"
+    order_id: Mapped[str] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)

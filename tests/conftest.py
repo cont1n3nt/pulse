@@ -4,9 +4,17 @@
 и без внешних API: настоящее расписание поездов отключено, перелёты собираются в тесте.
 """
 
+import os
+import tempfile
 from datetime import date, datetime, timedelta
 
 import pytest
+
+# API-тесты импортируются вместе с чистым ядром: изолируем пути до первого импорта config.
+_DATA = tempfile.TemporaryDirectory(prefix="pulse-pytest-", ignore_cleanup_errors=True)
+os.environ.update(DATA_DIR=_DATA.name + "/agent", PULSE_DB_PATH=_DATA.name + "/app.sqlite3",
+                  PULSE_AUTH_KEY="pytest-secret-" * 5, LLM_API_KEY="test-key-no-network",
+                  LANGSMITH_TRACING="false")
 
 from backend.agent.adapters import hotels as hotels_db
 from backend.agent.adapters import rasp

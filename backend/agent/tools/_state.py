@@ -38,8 +38,11 @@ def emit(runtime: ToolRuntime, block: str, **data) -> None:
 
 def cart_block(trip: TripState) -> dict:
     """Корзина для фронта: позиции, итог, проблемы и таймлайн поездки."""
+    change = trip.order_change or {}
     return {"items": [c.model_dump(mode="json") for c in trip.cart], "total_rub": trip.cart_total_rub,
-            "issues": [i.model_dump() for i in trip.issues], "itinerary": itinerary(trip)}
+            "issues": [i.model_dump() for i in trip.issues], "itinerary": itinerary(trip),
+            "replaces": change.get("order_id") if change.get("mode") == "replace" else None,
+            "extends": change.get("order_id") if change.get("mode") == "extend" else None}
 
 
 def emit_cart(runtime: ToolRuntime, trip: TripState) -> None:
