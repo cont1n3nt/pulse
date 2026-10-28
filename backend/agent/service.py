@@ -24,7 +24,7 @@ from langgraph.store.sqlite import SqliteStore
 from langgraph.types import Command
 from typing_extensions import NotRequired
 
-from . import memory
+from . import memory, orders
 from .adapters import hotels as hotels_db
 from .adapters import photos
 from .adapters.aviasales import SourceUnavailable
@@ -38,7 +38,7 @@ from .tools.hotels import TOOLS as HOTEL_TOOLS
 from .tools.packages import TOOLS as PACKAGE_TOOLS
 from .tools.trip import TOOLS as TRIP_TOOLS
 from .tools._state import cart_block
-from .trip import reduce_trip, summary
+from .trip import reduce_trip, summary, refresh
 
 log = logging.getLogger(__name__)
 
@@ -553,3 +553,47 @@ def collect(session_id: str, events) -> AgentResponse:
 
 def handle_message(session_id: str, text: str, user_id: str | None = None) -> AgentResponse:
     return collect(session_id, stream_message(session_id, text, user_id))
+
+
+def account_cart(session_id: str) -> dict:
+    with _session_lock(session_id):
+        trip = refresh(get_state(session_id))
+        return {**cart_block(trip), "version": trip.version}
+
+
+def change_account_cart(session_id: str, version: int, pay: bool, user_id: str) -> dict:
+    """Explicit UI actions, serialized with agent turns; never require an LLM call."""
+    with _session_lock(session_id):
+        graph = _agent()
+        config = _config(session_id, user_id)
+        snapshot = graph.get_state(config)
+        trip = refresh(_trip(snapshot.values))
+        if trip.version != version:
+            raise ValueError("Поездка изменилась. Проверьте обновлённую корзину.")
+        if not trip.cart:
+            raise ValueError("Эта корзина уже пуста.")
+        if pay and any(i.severity == "blocker" for i in trip.issues):
+            raise ValueError("Сначала исправьте условия поездки: " + "; ".join(
+                i.message for i in trip.issues if i.severity == "blocker"))
+        order = orders.create(session_id, trip.version, trip.cart, trip.cart_total_rub) if pay else None
+        ops = ([{"op": "order", "order_id": order.id}] if order else
+               [{"op": "cart_remove", "option_id": c.option_id} for c in trip.cart])
+        text = (f"Заказ {order.id} оформлен из корзины профиля. Оплата демонстрационная, деньги не списаны."
+                if order else "Пользователь удалил выбранную поездку из корзины.")
+        messages = []
+        # Resolve suspended tool calls before advancing past the checkout interrupt.
+        pending = bool(snapshot.interrupts)
+        if pending:
+            history = snapshot.values.get("messages", [])
+            last_ai = next((m for m in reversed(history) if isinstance(m, AIMessage) and m.tool_calls), None)
+            if last_ai:
+                answered = {m.tool_call_id for m in history[history.index(last_ai) + 1:] if isinstance(m, ToolMessage)}
+                messages.extend(ToolMessage(content=text, tool_call_id=c["id"], name=c["name"])
+                                for c in last_ai.tool_calls if c["id"] not in answered)
+        messages.append(AIMessage(content=text))
+        graph.update_state(config, {"trip": ops, "messages": messages},
+                           **({"as_node": "tools"} if pending else {}))
+        if order:
+            hotel = next((c.title for c in order.items if c.kind == "hotel"), "без отеля")
+            memory.remember_order(_store(), user_id, order.id, f"{hotel}, итого {order.total_rub} ₽")
+        return {"order": order.model_dump(mode="json") if order else None}
