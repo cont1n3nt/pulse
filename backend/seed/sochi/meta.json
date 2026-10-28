@@ -1,7 +1,7 @@
 {
  "source": "OpenStreetMap, Overpass API; маршруты — OSRM по дорогам OSM",
  "license": "ODbL 1.0, © участники OpenStreetMap — https://www.openstreetmap.org/copyright",
- "exported_at": "2026-10-27T14:39:15+00:00",
+ "exported_at": "2026-10-28T15:11:33+00:00",
  "hotels": 1358,
  "by_district": {
   "Адлер": 257,
@@ -39,5 +39,7 @@
   "meal",
   "free_cancellation"
  ],
- "mountain_cluster_rule": "Адлер, широта ≥ 43.6, долгота ≥ 40.0"
+ "cluster_rules": [
+  "Красная Поляна: Адлер, широта ≥ 43.6, долгота ≥ 40.0"
+ ]
 }

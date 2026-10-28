@@ -3,6 +3,7 @@ from langchain_core.tools import tool
 
 from ..adapters import hotels as hotels_db
 from ..contracts import Requirements
+from ..location import HERE
 from ..trip import diff_hotels, diff_requirements
 from ._state import BadInput, current_trip, emit, prepare_changes, result
 
@@ -41,7 +42,7 @@ def search_hotels(runtime: ToolRuntime, check_in: str | None = None, check_out: 
                   adults: int | None = None, children_ages: list[int] | None = None,
                   district: str | None = None, max_price_per_night: int | None = None,
                   must_have: list[str] | None = None, near_sea: bool | None = None):
-    """Найти отели в Большом Сочи на даты: цена за ночь, итог за поездку, удобства, что рядом.
+    """Найти отели локации на даты: цена за ночь, итог за поездку, удобства, что рядом.
 
     Не переданные параметры берутся из сохранённых требований поездки, переданные сохраняются в них.
     Поэтому после update_requirements достаточно вызвать search_hotels() без аргументов.
@@ -51,7 +52,7 @@ def search_hotels(runtime: ToolRuntime, check_in: str | None = None, check_out: 
         check_out: дата выезда YYYY-MM-DD.
         adults: число взрослых.
         children_ages: возраста детей, например [5].
-        district: район: Адлер, Центр, Сириус, Красная Поляна, Хоста, Лазаревское; «любой» снимает фильтр.
+        district: район локации (список — в системном промпте); «любой» снимает фильтр.
         max_price_per_night: максимум за ночь в рублях; если не задан, считается из бюджета поездки.
         must_have: обязательные удобства из: wifi, pool, parking, kids, pets, breakfast, beach_line, spa.
         near_sea: только отели до 500 м от моря.
@@ -103,7 +104,7 @@ def search_hotels(runtime: ToolRuntime, check_in: str | None = None, check_out: 
     if changed:
         lines.append("По сравнению с прошлой выдачей: " + "; ".join(changed) + ".")
     for h in found:
-        sea = f"до моря {h.distance_to_sea_m} м" if h.distance_to_sea_m is not None else "море далеко (горы)"
+        sea = f"до моря {h.distance_to_sea_m} м" if h.distance_to_sea_m is not None else ("в горах" if HERE.in_mountains(h.district) else "море далеко")
         cancel = "бесплатная отмена" if h.free_cancellation else "без бесплатной отмены"
         line = (f"[{h.id}] {h.name}, {_title(h)}, {h.district}, {sea}, "
                 f"{h.price_per_night_rub} ₽/ночь, итого {h.total_price_rub} ₽ за {h.nights} н., "

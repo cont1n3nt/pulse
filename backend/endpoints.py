@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.agent import (forget_memory, get_memory, get_order, hotel_photo, resume_checkout, stream_message,
                            trip_view)
+from backend.agent.location import HERE
 from backend.auth import COOKIE_NAME, SESSION_AGE
 from backend.models import Chat, ChatMessage, User, utc_now
 
@@ -154,6 +155,14 @@ def health(request: Request) -> dict[str, str]:
     except SQLAlchemyError:
         raise HTTPException(503, "База недоступна")
     return {"status": "ok"}
+
+
+@router.get("/api/location")
+def location() -> dict:
+    """Локация агента для интерфейса: подпись поездки и подсказки пустого чата."""
+    return {"id": HERE.id, "title": HERE.names.title, "city": HERE.names.city,
+            "districts": list(HERE.district_names), "trains": HERE.rail is not None,
+            "examples": [e.model_dump() for e in HERE.examples]}
 
 
 @router.get("/api/auth/me")

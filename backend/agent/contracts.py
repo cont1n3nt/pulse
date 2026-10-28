@@ -144,6 +144,10 @@ class TripState(BaseModel):
     cart_total_rub: int = 0
     issues: list[Issue] = Field(default_factory=list)
     orders: list[str] = Field(default_factory=list)
+    cancelled_orders: list[str] = Field(default_factory=list)
+    # корзина после покупки: «replace» — перенос заказа (старый отменится после оплаты нового),
+    # «extend» — дополнение к заказу (трансфер к уже купленному отелю)
+    order_change: dict | None = None  # {"order_id": "...", "mode": "replace" | "extend"}
 
 
 class AgentReply(BaseModel):

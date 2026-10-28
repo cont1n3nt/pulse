@@ -1,11 +1,14 @@
-"""Выгрузка объектов размещения Большого Сочи из OpenStreetMap в seed агента.
+"""Выгрузка объектов размещения локации из OpenStreetMap в seed агента.
 
 Запуск (из корня проекта, нужен интернет):
-    uv run python scripts/fetch_osm_sochi.py            # с кешем ответов Overpass
-    uv run python scripts/fetch_osm_sochi.py --refresh  # заново запросить Overpass
+    uv run python scripts/fetch_osm.py sochi              # с кешем ответов Overpass
+    uv run python scripts/fetch_osm.py sochi --refresh    # заново запросить Overpass
+    uv run python scripts/fetch_osm.py kaliningrad        # любая папка backend/seed/<id>/ с location.json
 
-Пишет backend/seed/sochi/hotels.json и meta.json. Приложение этот скрипт не импортирует и к OSM
-в работе не обращается. Данные © участники OpenStreetMap, лицензия ODbL.
+Что выгружать, берётся из секции osm в backend/seed/<id>/location.json: границы районов (relation
+в OSM), кластеры по координатам (у Красной Поляны нет своей границы), bbox для моря и окрестностей,
+аэропорт. Пишет backend/seed/<id>/hotels.json и meta.json. Приложение этот скрипт не импортирует
+и к OSM в работе не обращается. Данные © участники OpenStreetMap, лицензия ODbL.
 
 Что берётся из OSM как есть: название, тип, адрес, координаты, звёзды, сайт, Wi-Fi.
 Что вычисляется из геометрии OSM: район, расстояние до моря, до аэропорта, первая линия,
@@ -27,26 +30,25 @@ from pathlib import Path
 import requests
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT_DIR = ROOT / "backend" / "seed" / "sochi"
-CACHE_DIR = ROOT / "backend" / "data" / "osm_cache"  # сырые ответы, в git не попадают
-OVERPASS = "https://overpass-api.de/api/interpreter"
+SEED = ROOT / "backend" / "seed"
+# основной сервер и зеркала: публичный Overpass часто перегружен (502/504)
+OVERPASS = ("https://overpass-api.de/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter")
 OSRM = "https://router.project-osrm.org/table/v1/driving/"
 OSRM_BATCH = 80  # точек в одном запросе к публичному серверу
 HEADERS = {"User-Agent": "pulse-hackathon-seed/1.0 (one-off export)"}
 
-# внутригородские районы Сочи и федеральная территория Сириус: relation id в OSM
-DISTRICT_RELATIONS = {
-    "Сириус": 11865346,  # первым: раньше территория входила в Адлерский район
-    "Адлер": 5650614,
-    "Хоста": 907728,
-    "Центр": 1116490,
-    "Лазаревское": 1116460,
-}
-# У Красной Поляны нет административной границы в OSM: горный кластер Адлерского района
-# (Красная Поляна, Эсто-Садок, Роза Хутор, Горки Город) выделяем по координатам.
-MOUNTAIN_CLUSTER = {"lat_min": 43.60, "lon_min": 40.00}
-BBOX = (43.35, 39.05, 44.10, 40.45)  # юг, запад, север, восток — для моря и окрестных объектов
-AIRPORT = (43.4499, 39.9566)  # AER
+# Параметры локации: заполняет configure() из location.json
+OUT_DIR: Path
+CACHE_DIR: Path  # сырые ответы, в git не попадают
+AREAS: list[dict]  # [{district, relation}] по порядку: объект на границе относим к первому
+CLUSTERS: list[dict]  # [{district, inside, lat_min, lon_min}]: район внутри другого по координатам
+MOUNTAINS: set[str]  # горные районы: рядом с ними ищем канатные дороги
+BBOX: tuple  # юг, запад, север, восток — для моря и окрестных объектов
+COAST_BBOX: tuple  # где искать берег моря (без лагун и заливов); по умолчанию BBOX
+AIRPORT: tuple
+PLACE = ""  # город в адресе, если в OSM он не указан
+MAX_SEA_M = 15_000  # дальше — «море далеко», расстояние не показываем
 
 TOURISM = "hotel|guest_house|hostel|apartment|motel|chalet"
 RESORT_WORDS = re.compile(r"санатор|пансионат|курорт|resort|дом отдыха|база отдыха|spa", re.I)
@@ -72,15 +74,16 @@ def overpass(name: str, query: str, refresh: bool) -> list[dict]:
     cache = CACHE_DIR / f"{name}.json"
     if cache.exists() and not refresh:
         return json.loads(cache.read_text(encoding="utf-8"))["elements"]
-    for attempt in range(4):
+    for attempt in range(6):
         try:
-            resp = requests.post(OVERPASS, data={"data": query}, headers=HEADERS, timeout=300)
-            if resp.status_code in (429, 504):
+            server = OVERPASS[attempt % len(OVERPASS)]
+            resp = requests.post(server, data={"data": query}, headers=HEADERS, timeout=300)
+            if resp.status_code in (429, 502, 504):
                 raise requests.HTTPError(f"Overpass занят: {resp.status_code}")
             resp.raise_for_status()
             break
         except requests.RequestException as exc:
-            if attempt == 3:
+            if attempt == 5:
                 raise
             wait = 20 * (attempt + 1)
             print(f"  {name}: {exc}, повтор через {wait} с", file=sys.stderr)
@@ -99,7 +102,7 @@ def airport_routes(hotels: list[dict], refresh: bool) -> dict[str, dict]:
     for i in range(0, len(todo), OSRM_BATCH):
         batch = todo[i:i + OSRM_BATCH]
         coords = ";".join(f"{lon},{lat}" for lat, lon in [AIRPORT] + [(h["lat"], h["lon"]) for h in batch])
-        for attempt in range(4):
+        for attempt in range(6):
             try:
                 resp = requests.get(OSRM + coords, params={"sources": 0, "annotations": "duration,distance"},
                                     headers=HEADERS, timeout=120)
@@ -107,7 +110,7 @@ def airport_routes(hotels: list[dict], refresh: bool) -> dict[str, dict]:
                 data = resp.json()
                 break
             except requests.RequestException as exc:
-                if attempt == 3:
+                if attempt == 5:
                     raise
                 print(f"  OSRM: {exc}, повтор", file=sys.stderr)
                 time.sleep(10 * (attempt + 1))
@@ -120,8 +123,30 @@ def airport_routes(hotels: list[dict], refresh: bool) -> dict[str, dict]:
     return routes
 
 
-def bbox() -> str:
-    return ",".join(map(str, BBOX))
+def configure(location_id: str) -> dict:
+    """Параметры выгрузки из backend/seed/<id>/location.json, секции osm и airport."""
+    global OUT_DIR, CACHE_DIR, AREAS, CLUSTERS, MOUNTAINS, BBOX, COAST_BBOX, AIRPORT, PLACE, MAX_SEA_M, KX, LAT0
+    OUT_DIR = SEED / location_id
+    path = OUT_DIR / "location.json"
+    if not path.exists():
+        sys.exit(f"Нет {path}: сначала опишите локацию (см. backend/agent/location.py)")
+    loc = json.loads(path.read_text(encoding="utf-8"))
+    osm = loc["osm"]
+    CACHE_DIR = ROOT / "backend" / "data" / "osm_cache" / location_id
+    AREAS, CLUSTERS = osm["areas"], osm.get("clusters", [])
+    MOUNTAINS = {d["name"] for d in loc["districts"] if d.get("mountains")}
+    BBOX = tuple(osm["bbox"])
+    COAST_BBOX = tuple(osm.get("coast_bbox", osm["bbox"]))
+    AIRPORT = (loc["airport"]["lat"], loc["airport"]["lon"])
+    PLACE = osm["place"]
+    MAX_SEA_M = osm.get("max_sea_m", MAX_SEA_M)
+    LAT0 = osm.get("lat0", (BBOX[0] + BBOX[2]) / 2)
+    KX = 111_320 * cos(radians(LAT0))
+    return loc
+
+
+def bbox(box: tuple | None = None) -> str:
+    return ",".join(map(str, box or BBOX))
 
 
 def point(el: dict) -> tuple[float, float] | None:
@@ -134,8 +159,8 @@ def point(el: dict) -> tuple[float, float] | None:
 
 # --- геометрия: локальная проекция в метры и сетка для поиска ближайшего ---------------------
 
-LAT0 = 43.6
-KX = 111_320 * cos(radians(LAT0))  # метров в градусе долготы на широте Сочи
+LAT0 = 43.6  # широта центра локации: задаёт configure()
+KX = 111_320 * cos(radians(LAT0))  # метров в градусе долготы на этой широте
 KY = 110_574  # метров в градусе широты
 
 
@@ -255,7 +280,7 @@ def address_of(tags: dict) -> str | None:
     street, house = tags.get("addr:street"), tags.get("addr:housenumber")
     if not street:
         return None
-    place = tags.get("addr:city") or tags.get("addr:suburb") or "Сочи"
+    place = tags.get("addr:city") or tags.get("addr:suburb") or PLACE
     return f"{place}, {street}" + (f", {house}" if house else "")
 
 
@@ -309,8 +334,9 @@ def describe(tags: dict, lat: float, lon: float, sea_m: int | None, airport_km: 
 
 
 def district_of(name: str, lat: float, lon: float) -> str:
-    if name == "Адлер" and lat >= MOUNTAIN_CLUSTER["lat_min"] and lon >= MOUNTAIN_CLUSTER["lon_min"]:
-        return "Красная Поляна"
+    for cluster in CLUSTERS:
+        if name == cluster["inside"] and lat >= cluster["lat_min"] and lon >= cluster["lon_min"]:
+            return cluster["district"]
     return name
 
 
@@ -318,27 +344,31 @@ def district_of(name: str, lat: float, lon: float) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("location", nargs="?", default="sochi", help="папка backend/seed/<id> с location.json")
     parser.add_argument("--refresh", action="store_true", help="не брать кеш, запросить Overpass заново")
-    refresh = parser.parse_args().refresh
+    args = parser.parse_args()
+    refresh = args.refresh
     sys.stdout.reconfigure(encoding="utf-8")  # консоль Windows по умолчанию в cp1251
     sys.stderr.reconfigure(encoding="utf-8")
+    configure(args.location)
 
     print("Объекты размещения по районам…")
     raw: dict[tuple[str, int], tuple[str, dict]] = {}
-    for district, rel in DISTRICT_RELATIONS.items():
+    for area in AREAS:
+        district, rel = area["district"], area["relation"]
         query = (f"[out:json][timeout:180];area(id:{3600000000 + rel})->.d;"
                  f'nwr["tourism"~"^({TOURISM})$"]["name"](area.d);out tags center;')
         elements = overpass(f"hotels_{rel}", query, refresh)
         added = 0
         for el in elements:
             key = (el["type"], el["id"])
-            if key not in raw:  # объект на границе Сириуса и Адлера относим к Сириусу
+            if key not in raw:  # объект на границе двух районов относим к первому в списке
                 raw[key] = (district, el)
                 added += 1
         print(f"  {district}: {len(elements)} (новых {added})")
 
     print("Море, пляжи, бассейны, достопримечательности…")
-    coast = overpass("coastline", f'[out:json][timeout:180];way["natural"="coastline"]({bbox()});out geom;', refresh)
+    coast = overpass("coastline", f'[out:json][timeout:180];way["natural"="coastline"]({bbox(COAST_BBOX)});out geom;', refresh)
     grids = {
         "beach": overpass("beaches", f'[out:json][timeout:180];nwr["natural"="beach"]({bbox()});out center tags;', refresh),
         "aerialway": points_grid(overpass("aerialways", f'[out:json][timeout:180];nwr["aerialway"="station"]({bbox()});out center tags;', refresh)),
@@ -377,7 +407,7 @@ def main() -> None:
         pool_near = any(t.get("access") not in ("yes", "public") for _, t in nearest(grids["pool"], lat, lon, POOL_RADIUS_M))
         district_name = district_of(district, lat, lon)
         pros, cons = describe(tags, lat, lon, sea_m, airport_km, grids, pool_near and not pool_tag,
-                              district_name == "Красная Поляна")
+                              district_name in MOUNTAINS)
         hotel = {
             "id": f"osm-{el_type[0]}{el_id}",
             "source": "osm",
@@ -389,7 +419,7 @@ def main() -> None:
             "address": address_of(tags),
             "lat": round(lat, 6),
             "lon": round(lon, 6),
-            "distance_to_sea_m": sea_m if sea_m is not None and sea_m <= 15_000 else None,
+            "distance_to_sea_m": sea_m if sea_m is not None and sea_m <= MAX_SEA_M else None,
             "distance_to_airport_km": airport_km,
             "amenities": {
                 "wifi": wifi_of(tags),
@@ -439,7 +469,8 @@ def main() -> None:
                             "airport_drive_km", "amenities.beach_line",
                             "amenities.pool", "pros", "cons"],
         "demo_fields": ["price", "availability", "meal", "free_cancellation"],
-        "mountain_cluster_rule": f"Адлер, широта ≥ {MOUNTAIN_CLUSTER['lat_min']}, долгота ≥ {MOUNTAIN_CLUSTER['lon_min']}",
+        "cluster_rules": [f"{c['district']}: {c['inside']}, широта ≥ {c['lat_min']}, долгота ≥ {c['lon_min']}"
+                          for c in CLUSTERS],
     }
     (OUT_DIR / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
 

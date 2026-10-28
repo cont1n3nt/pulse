@@ -2,10 +2,11 @@ from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
 from ..adapters.aviasales import fetch_flights
+from ..location import HERE
 from ..reference import find_city
 from ._state import current_trip, emit, result
 
-SOCHI_CODES = ("AER",)
+DESTINATION_CODES = (HERE.airport.code,)
 
 
 @tool
@@ -25,12 +26,12 @@ def resolve_city(name: str) -> str:
 def search_flights(origin: str, destination: str, departure: str, runtime: ToolRuntime, limit: int = 5):
     """Найти дешёвые перелёты в одну сторону с ценами Aviasales (цена за одного пассажира).
 
-    Для поездки туда и обратно вызови дважды: туда (город → AER) и обратно (AER → город).
+    Для поездки туда и обратно вызови дважды: туда (город → код аэропорта локации) и обратно; код локации — в системном промпте.
     Выдача обратного направления не стирает выдачу «туда».
 
     Args:
         origin: IATA-код города вылета (из resolve_city), например MOW.
-        destination: IATA-код города прилёта, например AER.
+        destination: IATA-код города прилёта.
         departure: месяц YYYY-MM или точная дата YYYY-MM-DD.
         limit: сколько вариантов вернуть (1–10).
     """
@@ -53,8 +54,8 @@ def search_flights(origin: str, destination: str, departure: str, runtime: ToolR
     emit(runtime, "flights", items=items)
 
     ops = [{"op": "flights", "items": items}]
-    home = destination if origin.upper() in SOCHI_CODES else origin
-    if home.upper() not in SOCHI_CODES and current_trip(runtime).requirements.origin_code != home.upper():
+    home = destination if origin.upper() in DESTINATION_CODES else origin
+    if home.upper() not in DESTINATION_CODES and current_trip(runtime).requirements.origin_code != home.upper():
         ops.append({"op": "requirements", "changes": {"origin_code": home.upper()}})
     return result(runtime, "search_flights", content, ops)
 
