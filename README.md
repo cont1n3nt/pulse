@@ -17,9 +17,9 @@
 ## Быстрый старт
 
 ```bash
-git clone https://github.com/cont1n3nt/pulse.git
+git clone https://github.com/ostrovok-hackathon-2026/pulse.git
 cd pulse
-cp ..env.example ..env   # впишите LLM_API_KEY (и по желанию TRAVELPAYOUTS_TOKEN, YANDEX_RASP_KEY)
+cp .env.example .env   # впишите LLM_API_KEY (и по желанию TRAVELPAYOUTS_TOKEN, YANDEX_RASP_KEY)
 docker compose up --build
 # открыть http://localhost:8080
 ```
@@ -28,7 +28,7 @@ docker compose up --build
 своим ключом age вместо `cp .env.example .env`:
 
 ```bash
-age -d -i <ваш-ключ> -o ..env secrets..env.age
+age -d -i <ваш-ключ> -o .env secrets.env.age
 ```
 
 Нужны Docker и Docker Compose v2. Сборка занимает около минуты. Когда сервис готов,
@@ -287,6 +287,17 @@ uv run python -m evals.run buy train --repeat 3   # выбранные, по 3 �
   затем перезапустите сервис. Каждый ход станет деревом: промпт, ответ модели, вызовы инструментов с входом
   и выходом, токены и время.
 
+Публичные трассы настоящих ходов агента (`claude-haiku-5-5`), открываются без входа в LangSmith:
+
+- [«Я на машине, нужен отель в Центре до 5 тысяч за ночь с 3 по 6 декабря, нас двое»](https://smith.langchain.com/public/b342f32d-993c-4172-b42a-3720c930e45b/r/01a1836b-7fcb-72e0-b2e3-e09b1874758e?start_time=2026-10-28T16%3A50%3A22.795303Z),
+  9,6 с. Модель вызывает `search_hotels` один раз. «На машине» она понимает как «только отель, без билетов»,
+  а лимит за ночь передаёт в подбор (`max_price_per_night: 5000`). В конце ответа она честно предупреждает:
+  «Парковка в данных не указана».
+- [«Нужен только отель в Хосте на 4 ночи с 5 декабря, нас двое, билеты купили сами»](https://smith.langchain.com/public/a93aaf03-cbb1-412c-a814-d89b7706c45c/r/01a1836d-bdda-7042-8f9a-3d875e0fa2c4?start_time=2026-10-28T16%3A52%3A49.754512Z),
+  17,9 с. Дату «4 ночи с 5 декабря» модель переводит в 05.12–09.12. Цифры ответа взяты из выдачи
+  инструмента: «Кавказ» дороже на 870 ₽, это 17 630 − 16 760. Повторный прогон того же запроса дал те же
+  отели и ту же рекомендацию.
+
 ## Данные
 
 | Что | Откуда |
@@ -342,7 +353,7 @@ uv run python -m evals.run buy train --repeat 3   # выбранные, по 3 �
 
 ```bash
 uv sync
-cp ..env.example ..env
+cp .env.example .env
 uv run uvicorn backend.main:app --reload   # http://127.0.0.1:8000
 ```
 

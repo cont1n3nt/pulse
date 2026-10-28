@@ -1,4 +1,4 @@
-"""Все настройки из окружения в одном месте. Пустое значение в ..env — то же, что не задано."""
+"""Все настройки из окружения в одном месте. Пустое значение в .env — то же, что не задано."""
 
 import os
 from pathlib import Path
@@ -45,12 +45,11 @@ LOCATION = env("PULSE_LOCATION", "sochi")
 def make_llm(model: str | None = None):
     from langchain_openai import ChatOpenAI
 
-    if not LLM_API_KEY:
-        raise RuntimeError("LLM_API_KEY не задан: скопируйте ..env.example в ..env и впишите ключ")
-
+    # Без ключа граф всё равно собирается: история чатов и корзина читаются из чекпоинта без модели.
+    # Ход агента без ключа не запускается (service._guarded), пользователь видит понятную причину.
     return ChatOpenAI(
         base_url=LLM_BASE_URL,
-        api_key=LLM_API_KEY,
+        api_key=LLM_API_KEY or "not-set",
         model=model or LLM_MODEL,
         temperature=0,
         timeout=60,

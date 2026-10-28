@@ -197,7 +197,7 @@ class PurchaseTests(unittest.TestCase):
         index = c.get('/')
         self.assertEqual(index.headers['cache-control'], 'no-store')
         self.assertIn('/static/app.js?v=', index.text)
-        self.assertIn('Тихо', index.text)
+        self.assertIn('Pulse', index.text)
         self.assertEqual(c.get('/static/app.js').headers['cache-control'], 'no-cache')
 
 
