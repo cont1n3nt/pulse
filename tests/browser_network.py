@@ -221,6 +221,7 @@ class NetworkRecoveryTests(browser_purchases.BasketStatusTests):
             route.continue_(url=self.url + '/qa/pay-unknown/' + chat)
         self.page.route('**/api/purchases/*/pay', route_payment)
         self.page.locator('.purchase-card .pay').click()
+        self.page.locator('#confirm-accept').click()
         self.page.wait_for_function('purchaseBusy')
         # Wait until the server committed the operation before advancing client time.
         from backend.agent import service
@@ -238,6 +239,7 @@ class NetworkRecoveryTests(browser_purchases.BasketStatusTests):
         self.seed_cart()
         self.page.route('**/api/chats/*', lambda route: route.continue_(url=self.url + '/qa/json/body'))
         self.page.locator('.purchase-card .pay').click()
+        self.page.locator('#confirm-accept').click()
         self.page.wait_for_function('document.querySelector("#basket-status").textContent.includes("оформлен и сохранён")')
         self.page.clock.fast_forward(20001)
         self.page.wait_for_function('!purchaseBusy && purchases.orders.length === 1')

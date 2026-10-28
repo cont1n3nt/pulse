@@ -14,7 +14,7 @@ from backend.endpoints import router
 from backend import models  # noqa: F401 - register model before create_all
 
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_dotenv(Path(__file__).resolve().parent.parent / "..env")
 
 logging.basicConfig(level=(os.getenv("LOG_LEVEL") or "INFO").upper(),
                     format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
