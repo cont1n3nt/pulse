@@ -145,5 +145,18 @@
     <div id="basket-list"></div>
     <p class="basket-demo">Демонстрационная оплата — деньги не списываются. Оформленные заказы появятся в профиле.</p>
   </dialog>
+  <dialog id="confirm-dialog" class="site-confirm" aria-labelledby="confirm-title" aria-describedby="confirm-description">
+    <form method="dialog">
+      <div class="site-confirm-head">
+        <h2 id="confirm-title"></h2>
+        <button class="icon-button" type="submit" value="cancel" aria-label="Закрыть подтверждение">×</button>
+      </div>
+      <p id="confirm-description"></p>
+      <div class="site-confirm-actions">
+        <button id="confirm-cancel" type="submit" value="cancel" autofocus>Отмена</button>
+        <button id="confirm-accept" type="submit" value="accept"></button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

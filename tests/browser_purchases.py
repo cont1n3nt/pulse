@@ -70,7 +70,7 @@ class BasketStatusTests(unittest.TestCase):
         self.page.route("**/api/purchases", self.route_refresh)
         self.page.route("**/api/hotels/*/photo", lambda route: route.fulfill(status=404))
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
-        self.page.on("dialog", lambda dialog: dialog.accept())
+        self.page.on("dialog", lambda dialog: (self.errors.append("Unexpected browser dialog"), dialog.dismiss()))
         # Track completion of the real refresh function, including JSON parsing/rendering.
         # networkidle may still refer to the previous page state immediately after a click.
         self.page.add_init_script("""
@@ -109,6 +109,8 @@ class BasketStatusTests(unittest.TestCase):
     def click_and_wait_refresh(self, selector):
         completed = self.page.evaluate("window.qaCompletedRefreshes")
         self.page.locator(selector).click()
+        if self.page.locator('#confirm-dialog').is_visible():
+            self.page.locator('#confirm-accept').click()
         self.page.wait_for_function(
             "count => !chatBusy && !purchaseBusy && window.qaCompletedRefreshes > count && window.qaPendingRefreshes === 0",
             arg=completed)
@@ -157,6 +159,37 @@ class BasketStatusTests(unittest.TestCase):
         self.assertEqual(self.page.evaluate('locationCity'), 'Сочи')
         self.click_and_wait_refresh('#basket-toggle')
         self.assertEqual(self.page.locator('.purchase-card').count(), 1)
+
+    def test_confirmation_cancel_keeps_cart_and_basket_open(self):
+        self.seed_cart()
+        remove = self.page.locator('.purchase-card .danger')
+        remove.click()
+        self.assertTrue(self.page.locator('#confirm-dialog').is_visible())
+        self.assertEqual(self.page.evaluate('document.activeElement.id'), 'confirm-cancel')
+        # Tab stays within the top dialog, including when the basket is open below it.
+        for _ in range(5):
+            self.page.keyboard.press('Tab')
+            self.assertTrue(self.page.evaluate('document.activeElement.closest("#confirm-dialog") !== null'))
+        self.page.keyboard.press('Escape')
+        self.assertTrue(self.page.locator('#confirm-dialog').is_hidden())
+        self.assertTrue(self.page.locator('#basket-dialog').is_visible())
+        self.assertTrue(remove.evaluate('(button) => button === document.activeElement'))
+        self.assertEqual(self.page.evaluate('purchases.carts.length'), 1)
+        remove.click()
+        self.page.locator('#confirm-cancel').click()
+        self.assertEqual(self.page.evaluate('purchases.carts.length'), 1)
+
+    def test_mobile_confirmation_fits_and_closes_on_backdrop(self):
+        self.page.set_viewport_size({'width': 320, 'height': 640})
+        self.click_and_wait_refresh('#profile-toggle')
+        self.page.locator('#rotate').click()
+        dialog = self.page.locator('#confirm-dialog')
+        self.assertTrue(dialog.is_visible())
+        self.assertTrue(dialog.evaluate('(node) => node.scrollWidth === node.clientWidth && node.getBoundingClientRect().right <= innerWidth'))
+        self.page.mouse.click(2, 2)
+        self.assertTrue(dialog.is_hidden())
+        self.assertTrue(self.page.locator('#account-panel').is_visible())
+        self.assertEqual(self.page.evaluate('document.activeElement.id'), 'rotate')
 
     def test_replacement_cart_confirmation_and_cancelled_history(self):
         chat = self.seed_cart()
@@ -221,6 +254,7 @@ class BasketStatusTests(unittest.TestCase):
         payments = []
         self.page.route("**/api/purchases/*/pay", lambda route: payments.append(route))
         self.page.locator(".purchase-card .pay").click()
+        self.page.locator('#confirm-accept').click()
         self.page.wait_for_function("purchaseBusy")
         self.fail_refresh()
         self.refresh()

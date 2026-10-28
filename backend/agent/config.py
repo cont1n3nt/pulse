@@ -1,4 +1,4 @@
-"""Все настройки из окружения в одном месте. Пустое значение в .env — то же, что не задано."""
+"""Все настройки из окружения в одном месте. Пустое значение в ..env — то же, что не задано."""
 
 import os
 from pathlib import Path
@@ -42,7 +42,7 @@ def make_llm(model: str | None = None):
     from langchain_openai import ChatOpenAI
 
     if not LLM_API_KEY:
-        raise RuntimeError("LLM_API_KEY не задан: скопируйте .env.example в .env и впишите ключ")
+        raise RuntimeError("LLM_API_KEY не задан: скопируйте ..env.example в ..env и впишите ключ")
 
     return ChatOpenAI(
         base_url=LLM_BASE_URL,

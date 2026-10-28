@@ -37,6 +37,21 @@ button { cursor: pointer; }
 button:disabled { cursor: wait; }
 button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !important; }
 
+/* Подтверждения в общей палитре сайта. */
+.site-confirm { width: min(24rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); margin: auto; padding: 1rem; overflow-y: auto; border: 1px solid var(--line); border-radius: .8rem; background: var(--paper); color: var(--ink); box-shadow: 0 .75rem 2.5rem #203b3826; }
+.site-confirm::backdrop { background: #203b3866; backdrop-filter: blur(3px); }
+.site-confirm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; margin-bottom: .4rem; }
+.site-confirm-head .icon-button { flex-shrink: 0; width: 1.8rem; height: 1.8rem; font-size: 1.2rem; background: transparent; }
+.site-confirm h2 { margin: .2rem 0 0; font-size: .95rem; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
+#confirm-description { margin: 0; color: var(--ink-soft); font-size: .78rem; line-height: 1.5; }
+.site-confirm-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; margin-top: .85rem; }
+.site-confirm-actions button { min-height: 2.4rem; padding: .45rem .8rem; border: 0; border-radius: .45rem; background: var(--mint); color: var(--accent-ink); font-size: .78rem; font-weight: 600; }
+.site-confirm-actions button:hover { background: var(--mint-strong); }
+#confirm-accept { background: var(--accent); color: #fff; }
+#confirm-accept:hover { background: var(--accent-dark); }
+#confirm-accept.is-danger { background: var(--danger); }
+#confirm-accept.is-danger:hover { background: #852323; }
+
 /* --- раскладка: чаты | диалог | поездка ------------------------------------------------- */
 
 .layout {

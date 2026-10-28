@@ -19,7 +19,7 @@
 ```bash
 git clone https://github.com/cont1n3nt/pulse.git
 cd pulse
-cp .env.example .env   # впишите LLM_API_KEY (и по желанию TRAVELPAYOUTS_TOKEN, YANDEX_RASP_KEY)
+cp ..env.example ..env   # впишите LLM_API_KEY (и по желанию TRAVELPAYOUTS_TOKEN, YANDEX_RASP_KEY)
 docker compose up --build
 # открыть http://localhost:8080
 ```
@@ -28,7 +28,7 @@ docker compose up --build
 своим ключом age вместо `cp .env.example .env`:
 
 ```bash
-age -d -i <ваш-ключ> -o .env secrets.env.age
+age -d -i <ваш-ключ> -o ..env secrets..env.age
 ```
 
 Нужны Docker и Docker Compose v2. Сборка занимает около минуты. Когда сервис готов,
@@ -342,7 +342,7 @@ uv run python -m evals.run buy train --repeat 3   # выбранные, по 3 �
 
 ```bash
 uv sync
-cp .env.example .env
+cp ..env.example ..env
 uv run uvicorn backend.main:app --reload   # http://127.0.0.1:8000
 ```
 

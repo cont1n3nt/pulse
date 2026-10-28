@@ -64,6 +64,54 @@ let dragOffset = null;
 // что сейчас показано в панели поездки: из этого считается заголовок и счётчик на кнопке
 let tripView = { packages: [], weather: null, flex: null, recommendation: null, hotels: [], flights: [], cart: null, orders: [] };
 
+const confirmDialog = document.querySelector('#confirm-dialog');
+const confirmTitle = document.querySelector('#confirm-title');
+const confirmDescription = document.querySelector('#confirm-description');
+const confirmAccept = document.querySelector('#confirm-accept');
+
+// One shared modal also works above the open basket, keeping keyboard focus inside.
+function confirmAction({ title, description, action, danger = false }) {
+  if (confirmDialog.open) return Promise.resolve(false);
+  const epoch = accountEpoch;
+  const trigger = document.activeElement;
+  confirmTitle.textContent = title;
+  confirmDescription.textContent = description;
+  confirmAccept.textContent = action;
+  confirmAccept.classList.toggle('is-danger', danger);
+  confirmDialog.returnValue = 'cancel';
+  return new Promise(resolve => {
+    confirmDialog.addEventListener('close', () => {
+      const accepted = confirmDialog.returnValue === 'accept' && epoch === accountEpoch;
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+      resolve(accepted);
+    }, { once: true });
+    confirmDialog.showModal();
+    document.querySelector('#confirm-cancel').focus();
+  });
+}
+
+confirmDialog.addEventListener('click', event => {
+  if (event.target !== confirmDialog) return;
+  const rect = confirmDialog.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
+    confirmDialog.close('cancel');
+  }
+});
+
+confirmDialog.addEventListener('keydown', event => {
+  if (event.key !== 'Tab') return;
+  const buttons = [...confirmDialog.querySelectorAll('button')];
+  const first = buttons[0];
+  const last = buttons[buttons.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
+
 function keepPanelInViewport() {
   if (accountPanel.hidden) return;
   const rect = accountPanel.getBoundingClientRect();
@@ -151,7 +199,7 @@ async function loadMemory() {
   }
 }
 forgetButton.addEventListener('click', async () => {
-  if (!confirm('Агент забудет город вылета, состав семьи, предпочтения и прошлые заказы. Продолжить?')) return;
+  if (!await confirmAction({ title: 'Очистить память?', description: 'Агент забудет ваши предпочтения и прошлые поездки.', action: 'Очистить', danger: true })) return;
   try {
     const response = await fetch('/api/memory', { method: 'DELETE', credentials: 'same-origin' });
     if (!response.ok) throw new Error();
@@ -1123,7 +1171,7 @@ codeEl.addEventListener('click', async () => {
   }
 });
 document.querySelector('#rotate').addEventListener('click', async () => {
-  if (!confirm('Старый код перестанет работать. Перевыпустить код?')) return;
+  if (!await confirmAction({ title: 'Перевыпустить код?', description: 'Старый код перестанет работать.', action: 'Перевыпустить' })) return;
   try {
     render(await api('/api/auth/rotate', { method: 'POST' }));
     messageEl.textContent = 'Сохраните новый код доступа';
@@ -1165,6 +1213,7 @@ form.addEventListener('submit', async (event) => {
   }
 });
 document.addEventListener('keydown', (event) => {
+  if (document.querySelector('dialog[open]')) return;
   if (event.key === 'Escape') {
     setChatsOpen(false);
     setTripOpen(false);
@@ -1201,7 +1250,8 @@ function actionButton(text, action, className = 'cancel') {
 }
 
 async function deleteChat(item) {
-  if (chatBusy || !confirm(`Удалить чат «${item.title}»? Выбранные поездки и заказы сохранятся в корзине и профиле.`)) return;
+  if (chatBusy) return;
+  if (!await confirmAction({ title: `Удалить чат «${item.title}»?`, description: 'Поездки и заказы сохранятся.', action: 'Удалить', danger: true }) || chatBusy) return;
   const epoch = accountEpoch;
   setChatBusy(true);
   try {
@@ -1272,7 +1322,7 @@ function paintPurchases() {
   for (const order of purchases.orders) {
     const card = orderContent(order);
     card.append(actionButton('Удалить из истории', async () => {
-      if (!confirm('Удалить заказ из истории? Это не отменяет оформленный заказ.')) return;
+      if (!await confirmAction({ title: 'Удалить заказ из истории?', description: 'Сам заказ останется действующим.', action: 'Удалить', danger: true })) return;
       try {
         await api(`/api/orders/${encodeURIComponent(order.id)}`, { method: 'DELETE' });
         await refreshPurchases();
@@ -1285,10 +1335,15 @@ function paintPurchases() {
 async function purchaseAction(cart, pay) {
   if (purchaseBusy || chatBusy) return;
   const paymentPrompt = cart.replaces
-    ? `Перенести заказ ${cart.replaces} за ${rub(cart.total_rub)}? Прежний заказ будет отменён.`
+    ? `Перенести заказ ${cart.replaces} за ${rub(cart.total_rub)}?`
     : cart.extends ? `Оформить дополнение к заказу ${cart.extends} за ${rub(cart.total_rub)}?`
       : `Оформить поездку за ${rub(cart.total_rub)}?`;
-  if (!confirm(pay ? `${paymentPrompt} Оплата демонстрационная, деньги не спишутся.` : 'Удалить эту поездку из корзины?')) return;
+  if (!await confirmAction({
+    title: pay ? paymentPrompt : 'Удалить поездку из корзины?',
+    description: pay ? `${cart.replaces ? 'Прежний заказ отменится. ' : ''}Демо-оплата, деньги не спишутся.` : 'Поездка исчезнет из корзины.',
+    action: pay ? 'Оформить' : 'Удалить',
+    danger: !pay,
+  }) || purchaseBusy || chatBusy) return;
   const epoch = accountEpoch;
   purchaseBusy = true;
   setChatBusy(true);
