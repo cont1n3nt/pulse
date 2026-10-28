@@ -57,6 +57,8 @@ let chats = [];
 let chatBusy = true;
 // Ответы агента по чатам: пока агент думает в одном чате, можно открыть другой или создать новый
 const streams = new Map();
+// Фоновая догрузка готового ответа в открытый чат удерживает блокировку ввода до отрисовки
+const reloadingChats = new Map();
 const API_TIMEOUT_MS = 20000;
 const STREAM_IDLE_TIMEOUT_MS = 120000;
 let accountEpoch = 0;
@@ -324,8 +326,8 @@ async function api(path, options = {}) {
 }
 
 const agentThinking = () => streams.has(activeChatId);
-// В открытом чате нельзя писать: идёт короткое действие или агент ещё отвечает здесь
-const chatLocked = () => chatBusy || !activeChatId || agentThinking();
+// В открытом чате нельзя писать: идёт короткое действие, подгрузка ответа или агент ещё отвечает здесь
+const chatLocked = () => chatBusy || !activeChatId || agentThinking() || reloadingChats.has(activeChatId);
 
 function setChatBusy(busy) {
   chatBusy = busy;
@@ -804,6 +806,7 @@ function clearChat() {
   // Ответ в этом чате продолжается в фоне, но его место на экране пропадает
   const stream = streams.get(activeChatId);
   if (stream) stream.left = true;
+  reloadingChats.delete(activeChatId);
   activeChatId = null;
   chatMessages.replaceChildren(chatEmpty);
   chatEmpty.hidden = false;
@@ -1031,9 +1034,10 @@ async function streamAgent(url, payload) {
   if (chatLocked()) return;
   const epoch = accountEpoch;
   const chatId = activeChatId;
-  const stream = { controller: new AbortController(), timedOut: false, left: false };
+  const stream = { controller: new AbortController(), timedOut: false, left: false, deleted: false };
   streams.set(chatId, stream);
   const isCurrent = () => streams.get(chatId) === stream && epoch === accountEpoch && chatId === activeChatId && !stream.left;
+  let streamError = null;
   let timeout;
   const resetTimeout = () => {
     clearTimeout(timeout);
@@ -1067,10 +1071,11 @@ async function streamAgent(url, payload) {
       if (isCurrent() || event.type === 'chat') handleEvent(reply, event);
     }, resetTimeout);
   } catch (error) {
+    if (stream.controller.signal.aborted) error = new Error(stream.timedOut
+      ? 'Две минуты нет новых данных. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
+      : 'Ожидание остановлено. Запрос может ещё выполняться. Обновите чат перед повторной отправкой.');
+    streamError = error;
     if (isCurrent()) {
-      if (stream.controller.signal.aborted) error = new Error(stream.timedOut
-        ? 'Две минуты нет новых данных. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
-        : 'Ожидание остановлено. Запрос может ещё выполняться. Обновите чат перед повторной отправкой.');
       showChatError(error);
       chatReload.hidden = false;
     }
@@ -1080,31 +1085,55 @@ async function streamAgent(url, payload) {
     // Поток всегда снимается с учёта, иначе чат останется заблокированным навсегда
     if (streams.get(chatId) === stream) streams.delete(chatId);
     if (epoch === accountEpoch) {
+      const shouldReload = chatId === activeChatId && stream.left && !stream.deleted;
+      let reloadToken = null;
+      if (shouldReload) {
+        reloadToken = Symbol();
+        reloadingChats.set(chatId, reloadToken);
+      }
       updateChatControls();
       renderChatList();
-      if (chatId === activeChatId) {
-        // пользователь уходил из чата: на экране история без этого ответа, берём её с сервера
-        if (stream.left) reloadChat(chatId);
-        else chatInput.focus();
+      if (!stream.deleted) {
+        paintPurchases();
         refreshPurchases();
+        if (!accountPanel.hidden) loadMemory();
+      }
+      if (chatId === activeChatId && !stream.deleted) {
+        // пользователь уходил из чата: на экране история без этого ответа, берём её с сервера, удерживая блокировку ввода
+        if (shouldReload) await reloadChat(chatId, reloadToken, streamError);
+        else chatInput.focus();
       }
     }
   }
 }
 
-// Подгрузить открытый чат заново, если пользователь не начал за это время другое действие
-async function reloadChat(chatId) {
+// Подгрузить открытый чат заново, удерживая блокировку ввода до отрисовки ответа
+async function reloadChat(chatId, token = Symbol(), streamError = null) {
   const epoch = accountEpoch;
+  reloadingChats.set(chatId, token);
+  updateChatControls();
   try {
     const data = await api(`/api/chats/${encodeURIComponent(chatId)}`);
-    if (epoch === accountEpoch && chatId === activeChatId && !chatBusy && !streams.has(chatId)) {
-      displayChat(data);
-      updateChatControls();
-    }
-  } catch (error) {
-    if (epoch === accountEpoch && chatId === activeChatId) {
-      showChatError(error);
+    if (epoch !== accountEpoch || reloadingChats.get(chatId) !== token || chatId !== activeChatId || streams.has(chatId)) return;
+    reloadingChats.delete(chatId);
+    displayChat(data);
+    updateChatControls();
+    if (streamError) {
+      showChatError(streamError);
       chatReload.hidden = false;
+    }
+    if (!chatBusy) chatInput.focus();
+  } catch (error) {
+    if (epoch !== accountEpoch || reloadingChats.get(chatId) !== token || chatId !== activeChatId) return;
+    reloadingChats.delete(chatId);
+    chatMessages.querySelectorAll('.reasoning').forEach((node) => node.remove());
+    updateChatControls();
+    showChatError(streamError || error);
+    chatReload.hidden = false;
+  } finally {
+    if (reloadingChats.get(chatId) === token) {
+      reloadingChats.delete(chatId);
+      if (epoch === accountEpoch) updateChatControls();
     }
   }
 }
@@ -1164,6 +1193,7 @@ async function loadUserChats(userId) {
   // другой аккаунт: ответы прежнего обрываются
   for (const stream of streams.values()) stream.controller.abort();
   streams.clear();
+  reloadingChats.clear();
   activeUserId = userId;
   const epoch = ++accountEpoch;
   ++memoryRequest;
@@ -1439,8 +1469,10 @@ async function deleteChat(item) {
   const stream = streams.get(item.id);
   if (stream) {
     stream.left = true;
+    stream.deleted = true;
     stream.controller.abort();
   }
+  reloadingChats.delete(item.id);
   setChatBusy(true);
   try {
     await api(`/api/chats/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
