@@ -112,7 +112,7 @@ def save_reply(session_factory, chat_id: str, text: str) -> dict | None:
         return None
 
 
-def agent_stream(request: Request, chat_id: str, events) -> StreamingResponse:
+def agent_stream(request: Request, chat_id: str, events, initial_chat: dict | None = None) -> StreamingResponse:
     """События агента в SSE. Текст ответа сохраняется в историю, даже если клиент отключился."""
     session_factory = request.app.state.db
 
@@ -120,6 +120,8 @@ def agent_stream(request: Request, chat_id: str, events) -> StreamingResponse:
         parts: list[str] = []
         saved = False
         try:
+            if initial_chat is not None:
+                yield f"data: {json.dumps({'type': 'chat', 'chat': initial_chat}, ensure_ascii=False)}\n\n"
             for event in events:
                 if event["type"] == "token":
                     parts.append(event["text"])
@@ -206,10 +208,12 @@ def chat(request: Request, payload: ChatRequest) -> StreamingResponse:
                 current.title = " ".join(text.split())[:60]
             db.add(ChatMessage(chat_id=current.id, role="user", content=text))
             db.commit()
+            db.refresh(current)
+            initial_chat = chat_data(current)
     except SQLAlchemyError as exc:
         raise HTTPException(503, "База данных недоступна") from exc
     # ID чата служит сессией агента: у каждого чата своя поездка и своя корзина
-    return agent_stream(request, payload.session_id, stream_message(payload.session_id, text, user_id))
+    return agent_stream(request, payload.session_id, stream_message(payload.session_id, text, user_id), initial_chat)
 
 
 @router.post("/api/chats/{chat_id}/checkout")
