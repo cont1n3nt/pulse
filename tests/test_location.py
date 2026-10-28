@@ -10,8 +10,15 @@ from backend.agent.config import SEED_DIR
 LOCATIONS = sorted(p.parent.name for p in SEED_DIR.glob("*/location.json"))
 
 
-def test_there_are_several_locations():
-    assert {"sochi", "kaliningrad"} <= set(LOCATIONS)
+def test_default_location_exists():
+    assert "sochi" in LOCATIONS
+
+
+def test_location_without_trains_is_valid():
+    """Поезда необязательны: без секции rail агент собирает поездку только самолётом."""
+    raw = json.loads((SEED_DIR / "sochi" / "location.json").read_text(encoding="utf-8"))
+    loc = location.Location.model_validate(raw | {"id": "no-rail", "rail": None})
+    assert loc.rail is None and loc.district_names
 
 
 @pytest.mark.parametrize("location_id", LOCATIONS)

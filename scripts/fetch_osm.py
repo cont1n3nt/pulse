@@ -3,7 +3,7 @@
 Запуск (из корня проекта, нужен интернет):
     uv run python scripts/fetch_osm.py sochi              # с кешем ответов Overpass
     uv run python scripts/fetch_osm.py sochi --refresh    # заново запросить Overpass
-    uv run python scripts/fetch_osm.py kaliningrad        # любая папка backend/seed/<id>/ с location.json
+    uv run python scripts/fetch_osm.py <id>              # любая папка backend/seed/<id>/ с location.json
 
 Что выгружать, берётся из секции osm в backend/seed/<id>/location.json: границы районов (relation
 в OSM), кластеры по координатам (у Красной Поляны нет своей границы), bbox для моря и окрестностей,
@@ -32,7 +32,7 @@ import requests
 ROOT = Path(__file__).resolve().parent.parent
 SEED = ROOT / "backend" / "seed"
 # основной сервер и зеркала: публичный Overpass часто перегружен (502/504)
-OVERPASS = ("https://overpass-api.de/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+OVERPASS = ("https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass-api.de/api/interpreter",
             "https://overpass.kumi.systems/api/interpreter")
 OSRM = "https://router.project-osrm.org/table/v1/driving/"
 OSRM_BATCH = 80  # точек в одном запросе к публичному серверу
