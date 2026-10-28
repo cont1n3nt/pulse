@@ -16,7 +16,9 @@ FROM python:3.11.18-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:$PATH"
+    PATH="/opt/venv/bin:$PATH" \
+    DATA_DIR=/app/data \
+    PULSE_DB_PATH=/app/data/pulse.sqlite3
 
 # приложение работает не от root; данные пишет только в /app/data (том из docker-compose.yml)
 RUN useradd --create-home --uid 1000 pulse \
