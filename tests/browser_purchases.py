@@ -225,6 +225,7 @@ class BasketStatusTests(unittest.TestCase):
         self.click_and_wait_refresh("#profile-toggle")
         self.fail_refresh()
         self.refresh()
+        self.page.locator("#tab-orders").click()
         self.page.locator("#profile-orders").get_by_role("button", name="Повторить").click()
         self.page.wait_for_function('!document.querySelector("#profile-orders .form-error")')
         self.assertEqual(self.status(), "")

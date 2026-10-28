@@ -14,6 +14,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from backend.agent import (account_cart, change_account_cart, forget_memory, get_memory, get_order,
                            hotel_photo, resume_checkout, stream_message, trip_view)
+from backend.agent.service import update_memory
+from backend.agent.memory import MAX_TEXT
 from backend.agent.location import HERE
 from backend.auth import COOKIE_NAME, SESSION_AGE
 from backend.models import ArchivedChat, HiddenOrder, Chat, ChatMessage, User, utc_now
@@ -227,6 +229,16 @@ def checkout(request: Request, chat_id: str, decision: CheckoutDecision) -> Stre
 def memory(request: Request) -> dict:
     """Что агент помнит о пользователе между чатами."""
     return get_memory(require_user_id(request))
+
+
+class MemoryUpdate(BaseModel):
+    text: str = Field(max_length=MAX_TEXT)
+
+
+@router.put("/api/memory")
+def edit_memory(request: Request, body: MemoryUpdate) -> dict:
+    check_origin(request)
+    return update_memory(require_user_id(request), body.text)
 
 
 @router.delete("/api/memory", status_code=204)
