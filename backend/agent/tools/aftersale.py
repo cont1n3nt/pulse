@@ -7,9 +7,8 @@
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
-from .. import aftersale, orders
-from ..adapters import aviasales
-from ..contracts import Requirements, TripState
+from .. import aftersale, providers
+from ..contracts import Requirements, SourceUnavailable, TripState
 from ..trip import describe_cart, describe_issues, refresh
 from ._state import BadInput, current_trip, emit_cart, prepare_changes, result, session_id
 
@@ -19,13 +18,13 @@ def _order(runtime: ToolRuntime, trip: TripState, order_id: str | None):
     order_id = (order_id or (active[-1] if active else "")).strip().upper()
     if not order_id:
         raise aftersale.CannotChange("В этом чате ещё нет оформленных заказов.")
-    return aftersale.check_active(orders.get(order_id), order_id, session_id(runtime))
+    return aftersale.check_active(providers.orders().get(order_id), order_id, session_id(runtime))
 
 
 def _find_flight(origin, destination, day, arrive_by):
     try:
-        return aviasales.cheapest_on(origin, destination, day, arrive_by=arrive_by)
-    except aviasales.SourceUnavailable:
+        return providers.flights().cheapest_on(origin, destination, day, arrive_by=arrive_by)
+    except SourceUnavailable:
         return None
 
 

@@ -12,15 +12,11 @@ from datetime import date, timedelta
 from functools import lru_cache
 
 from ..config import SEED_DIR
-from ..contracts import HotelOption, TransferOption
+from ..contracts import AMENITY_CODES, AMENITY_NAMES, HotelOption, TransferOption  # noqa: F401 — словарь удобств
 from ..guardrails import sanitize_hotel
 from ..location import HERE
 
 DISTRICTS = HERE.district_names
-AMENITY_CODES = ("wifi", "pool", "parking", "kids", "pets", "breakfast", "beach_line", "spa")
-AMENITY_NAMES = {"wifi": "Wi-Fi", "pool": "бассейн", "parking": "парковка", "kids": "для детей",
-                 "pets": "с животными", "breakfast": "завтрак", "beach_line": "первая линия",
-                 "spa": "спа"}
 
 # параметры локации, нужные для проверки состыковок
 LOCAL_TZ = HERE.tz

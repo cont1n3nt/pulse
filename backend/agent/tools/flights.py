@@ -1,7 +1,7 @@
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
-from ..adapters.aviasales import fetch_flights
+from .. import providers
 from ..location import HERE
 from ..reference import find_city
 from ._state import current_trip, emit, result
@@ -36,7 +36,7 @@ def search_flights(origin: str, destination: str, departure: str, runtime: ToolR
         limit: сколько вариантов вернуть (1–10).
     """
     # сбой сети пробрасываем: ToolRetryMiddleware повторит вызов, а потом сообщит модели
-    flights = fetch_flights(origin, destination, departure, None, limit)
+    flights = providers.flights().fetch_flights(origin, destination, departure, None, limit)
 
     if not flights:
         return result(runtime, "search_flights",

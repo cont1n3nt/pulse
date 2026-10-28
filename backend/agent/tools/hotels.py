@@ -1,17 +1,16 @@
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
-from ..adapters import hotels as hotels_db
-from ..contracts import Requirements
+from .. import providers
+from ..contracts import AMENITY_NAMES, Requirements
 from ..location import HERE
-from ..trip import diff_hotels, diff_requirements
+from ..trip import check_in_time, check_out_time, diff_hotels, diff_requirements
 from ._state import BadInput, current_trip, emit, prepare_changes, result
 
 MEALS = {"none": "без питания", "breakfast": "завтрак", "half_board": "полупансион",
          "all_inclusive": "всё включено"}
 KINDS = {"hotel": "отель", "guest_house": "гостевой дом", "apartment": "апартаменты",
          "hostel": "хостел", "resort": "курорт"}
-AMENITY_NAMES = hotels_db.AMENITY_NAMES
 DEFAULT_ADULTS = 2
 
 
@@ -92,7 +91,7 @@ def search_hotels(runtime: ToolRuntime, check_in: str | None = None, check_out: 
     required = list(req.must_have)
     if req.children_ages and "kids" not in required:
         required.append("kids")
-    found = hotels_db.search(
+    found = providers.hotels().search(
         req.check_in, req.check_out, req.district, max_price_per_night, required, req.near_sea,
         exclude_kinds=("hostel",) if req.children_ages else ())
     if not found:
@@ -134,7 +133,7 @@ def get_hotel_details(hotel_id: str, runtime: ToolRuntime) -> str:
     Args:
         hotel_id: id отеля, например osm-w123456789.
     """
-    h = hotels_db.get(hotel_id)
+    h = providers.hotels().get(hotel_id)
     if not h:
         return f"Отель {hotel_id} не найден."
     amenities = ", ".join(
@@ -146,7 +145,8 @@ def get_hotel_details(hotel_id: str, runtime: ToolRuntime) -> str:
         f"{h.name} ({_title(h)}), {h.district}. Адрес: {h.address or 'нет данных'}.",
         "Объект, адрес и расстояния — OpenStreetMap; цена, питание и отмена — демо.",
         f"До моря: {sea}. До аэропорта: {h.distance_to_airport_km} км.",
-        f"Заселение с {hotels_db.CHECK_IN_TIME:%H:%M}, выезд до {hotels_db.CHECK_OUT_TIME:%H:%M} (типовые условия).",
+        f"Заселение с {check_in_time(h):%H:%M}, выезд до {check_out_time(h):%H:%M}"
+        + (" (типовые условия)." if h.check_in_time is None else "."),
         f"Удобства: {amenities}.",
         f"Рядом (по карте): {'; '.join(h.pros) or 'нет данных'}.",
         f"Учесть: {'; '.join(h.cons) or 'ничего особенного'}.",
@@ -154,7 +154,7 @@ def get_hotel_details(hotel_id: str, runtime: ToolRuntime) -> str:
     ]
     req = current_trip(runtime).requirements
     if req.check_in and req.check_out:
-        q = hotels_db.quote(hotel_id, req.check_in, req.check_out)
+        q = providers.hotels().quote(hotel_id, req.check_in, req.check_out)
         if q and q.available:
             lines.append(f"На {req.check_in:%d.%m}–{req.check_out:%d.%m}: {q.price_per_night_rub} ₽/ночь, "
                          f"итого {q.total_price_rub} ₽, {MEALS[q.meal]}, "
