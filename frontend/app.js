@@ -860,6 +860,8 @@ async function loadUserChats(userId) {
   const epoch = ++accountEpoch;
   chats = [];
   purchases = { carts: [], orders: [] };
+  purchasesError = '';
+  setBasketActionMessage('');
   paintPurchases();
   clearChat();
   chatTitle.textContent = 'Загрузка чатов…';
@@ -1063,6 +1065,18 @@ const basketStatus = document.querySelector('#basket-status');
 let purchases = { carts: [], orders: [] };
 let purchasesRequest = 0;
 let purchaseBusy = false;
+let basketActionMessage = '';
+let purchasesError = '';
+
+function renderBasketStatus() {
+  // A refresh must not erase a payment result or a rejected cart action.
+  basketStatus.textContent = [basketActionMessage, purchasesError].filter(Boolean).join(' ');
+}
+
+function setBasketActionMessage(message) {
+  basketActionMessage = message;
+  renderBasketStatus();
+}
 
 function actionButton(text, action, className = 'cancel') {
   const button = el('button', className, text);
@@ -1101,10 +1115,13 @@ async function refreshPurchases() {
     const data = await api('/api/purchases');
     if (epoch !== accountEpoch || request !== purchasesRequest) return;
     purchases = data;
+    purchasesError = '';
+    renderBasketStatus();
     paintPurchases();
   } catch (error) {
     if (epoch !== accountEpoch || request !== purchasesRequest) return;
-    basketStatus.textContent = error.message;
+    purchasesError = error.message;
+    renderBasketStatus();
     document.querySelector('#profile-orders').replaceChildren(
       el('p', 'form-error', 'Не удалось загрузить заказы.'), actionButton('Повторить', refreshPurchases));
   }
@@ -1157,16 +1174,16 @@ async function purchaseAction(cart, pay) {
   purchaseBusy = true;
   setChatBusy(true);
   paintPurchases();
-  basketStatus.textContent = pay ? 'Оформляем поездку…' : 'Удаляем…';
+  setBasketActionMessage(pay ? 'Оформляем поездку…' : 'Удаляем…');
   try {
     const data = await api(`/api/purchases/${encodeURIComponent(cart.chat_id)}${pay ? '/pay' : ''}`, {
       method: pay ? 'POST' : 'DELETE', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ version: cart.version }),
     });
     if (epoch !== accountEpoch) return;
-    basketStatus.textContent = pay ? `Заказ ${data.order.id} оформлен и сохранён в профиле. Деньги не списаны.` : 'Поездка удалена из корзины.';
+    setBasketActionMessage(pay ? `Заказ ${data.order.id} оформлен и сохранён в профиле. Деньги не списаны.` : 'Поездка удалена из корзины.');
     if (activeChatId === cart.chat_id) displayChat(await api(`/api/chats/${encodeURIComponent(cart.chat_id)}`));
-  } catch (error) { if (epoch === accountEpoch) basketStatus.textContent = error.message; }
+  } catch (error) { if (epoch === accountEpoch) setBasketActionMessage(error.message); }
   finally {
     purchaseBusy = false;
     if (epoch === accountEpoch) { setChatBusy(false); await refreshPurchases(); }
@@ -1176,7 +1193,7 @@ async function purchaseAction(cart, pay) {
 function openBasket() {
   setPanelOpen(false);
   setTripOpen(false);
-  basketStatus.textContent = '';
+  setBasketActionMessage('');
   paintPurchases();
   basketDialog.showModal();
   refreshPurchases();
