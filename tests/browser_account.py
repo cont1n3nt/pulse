@@ -5,6 +5,40 @@ from browser_purchases import BasketStatusTests
 
 
 class AccountPanelTests(BasketStatusTests):
+    def test_order_timeline(self):
+        self.page.locator('#profile-toggle').click()
+        self.page.locator('#tab-orders').click()
+        self.page.wait_for_function('window.qaPendingRefreshes === 0')
+        self.page.evaluate("""() => {
+          purchases.orders = [
+            {id: 'past', status: 'confirmed', total_rub: 12000, items: [{kind: 'hotel', title: 'Тестовый отель', price_rub: 12000, snapshot: {name: 'Тестовый отель', check_in: '2025-09-10', check_out: '2025-09-17'}}]},
+            {id: 'future', status: 'confirmed', total_rub: 18000, items: [{kind: 'hotel', title: 'Будущая поездка', price_rub: 18000, snapshot: {check_in: '2028-06-10', check_out: '2028-06-17'}}]}
+          ];
+          paintOrderHistory();
+        }""")
+        self.assertEqual(self.page.locator('.history-trip').count(), 1)
+        self.assertIn('Будущая поездка', self.page.locator('#profile-orders').inner_text())
+        self.page.locator('[data-mode="past"]').click()
+        self.assertIn('сентябрь 2025', self.page.locator('.history-month').inner_text().lower())
+        self.assertEqual(self.page.locator('.history-trip.is-past').count(), 1)
+        self.page.locator('.history-summary').click()
+        self.assertTrue(self.page.locator('.history-remove').is_visible())
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.assertTrue(self.page.locator('#account-panel').evaluate('(e) => e.scrollWidth <= e.clientWidth'))
+        self.page.evaluate("""() => {
+            const sample = purchases.orders[0];
+            purchases.orders = Array.from({length: 40}, (_, i) => ({...sample, id: 'overflow-' + i}));
+            paintOrderHistory();
+        }""")
+        for width, height in [(320, 568), (844, 390), (1280, 800)]:
+            self.page.set_viewport_size({'width': width, 'height': height})
+            self.assertTrue(self.page.locator('.history-scroll').evaluate('(e) => e.scrollHeight > e.clientHeight'))
+            self.assertTrue(self.page.locator('#account-panel').evaluate('(e) => e.scrollHeight <= e.clientHeight'))
+            before = self.page.locator('.history-filters').bounding_box()['y']
+            self.page.locator('.history-scroll').evaluate('(e) => e.scrollTop = 300')
+            self.assertEqual(self.page.locator('.history-filters').bounding_box()['y'], before)
+        self.page.screenshot(path='artifacts/account-panel/orders-timeline.png')
+
     def test_account_tabs_and_memory(self):
         self.page.locator('#profile-toggle').click()
         self.page.locator('#tab-memory').click()
@@ -37,6 +71,6 @@ class AccountPanelTests(BasketStatusTests):
 
 
 if __name__ == '__main__':
-    suite = unittest.TestSuite([AccountPanelTests('test_account_tabs_and_memory')])
+    suite = unittest.TestSuite([AccountPanelTests('test_account_tabs_and_memory'), AccountPanelTests('test_order_timeline')])
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     raise SystemExit(not result.wasSuccessful())
