@@ -62,7 +62,8 @@ let chatView = 0;
 const answering = () => streams.has(activeChatId);
 const inputLocked = () => chatBusy || !activeChatId || answering();
 const API_TIMEOUT_MS = 20000;
-const STREAM_IDLE_TIMEOUT_MS = 120000;
+// сервер шлёт «ping» каждые 15 с, пока агент думает: минута тишины — это обрыв связи, а не долгий ответ
+const STREAM_IDLE_TIMEOUT_MS = 60000;
 let accountEpoch = 0;
 let currentCode = null;
 let visible = false;
@@ -1065,7 +1066,7 @@ async function streamAgent(url, payload) {
   } catch (error) {
     if (onScreen()) {
       if (stream.controller.signal.aborted) error = new Error(stream.timedOut
-        ? 'Две минуты нет новых данных. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
+        ? 'Минуту нет связи с сервером. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
         : 'Ожидание остановлено. Запрос может ещё выполняться. Обновите чат перед повторной отправкой.');
       showChatError(error);
       chatReload.hidden = false;
