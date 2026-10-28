@@ -7,6 +7,7 @@ import time
 from functools import lru_cache
 from typing import Annotated
 
+import openai
 from langchain.agents import AgentState, create_agent
 from langchain.agents.middleware import (
     ModelFallbackMiddleware,
@@ -28,7 +29,8 @@ from . import memory, orders
 from .adapters import hotels as hotels_db
 from .adapters import photos
 from .adapters.aviasales import SourceUnavailable
-from .config import AGENT_RECURSION_LIMIT, DATA_DIR, LLM_FALLBACK_MODELS, LLM_MODEL, STRUCTURED_REPLY, make_llm
+from .config import (AGENT_RECURSION_LIMIT, DATA_DIR, LLM_API_KEY, LLM_FALLBACK_MODELS, LLM_MODEL,
+                     STRUCTURED_REPLY, make_llm)
 from .contracts import AgentReply, AgentResponse, Block, TripState
 from .guardrails import default_guards, inspect_text
 from .observability import LoggingMiddleware
@@ -503,16 +505,43 @@ def pending_checkout(session_id: str) -> dict | None:
     return {**pending.value, "type": "confirm", "action": "checkout"} if pending else None
 
 
+class ModelNotConfigured(RuntimeError):
+    pass
+
+
+def _explain(exc: Exception) -> str:
+    """Причина сбоя для пользователя: настройку модели можно исправить, поэтому её называем прямо.
+    Стек и подробности остаются в логе сервера."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, ModelNotConfigured):
+            return ("Модель не настроена: в .env не задан LLM_API_KEY. Расшифруйте secrets.env.age в .env "
+                    "или впишите ключ и перезапустите сервис (docker compose up --build).")
+        if isinstance(exc, openai.AuthenticationError | openai.PermissionDeniedError):
+            return "Провайдер модели не принял ключ: проверьте LLM_API_KEY в .env и перезапустите сервис."
+        if isinstance(exc, openai.NotFoundError):
+            return f"Провайдер модели не знает модель {LLM_MODEL}: проверьте LLM_MODEL и LLM_BASE_URL в .env."
+        if isinstance(exc, openai.RateLimitError):
+            return "Провайдер модели ограничил запросы (лимит или закончились средства). Попробуйте через минуту."
+        if isinstance(exc, openai.APIConnectionError | openai.InternalServerError):
+            return "Провайдер модели сейчас недоступен. Попробуйте ещё раз через минуту."
+        exc = exc.__cause__ or exc.__context__
+    return FAILED
+
+
 def _guarded(session_id: str, events):
-    """Один запрос на сессию за раз; ошибки не уходят клиенту, только в лог."""
+    """Один запрос на сессию за раз; клиенту уходит только понятная причина сбоя, стек — в лог."""
     started = time.perf_counter()
     log.info("Ход агента: чат %s", session_id)
     try:
+        if not LLM_API_KEY:
+            raise ModelNotConfigured("LLM_API_KEY не задан")
         with _session_lock(session_id):
             yield from _tidy_tokens(events())
-    except Exception:
+    except Exception as exc:
         log.exception("Агент упал на сессии %s через %.1f с", session_id, time.perf_counter() - started)
-        yield {"type": "error", "detail": FAILED}
+        yield {"type": "error", "detail": _explain(exc)}
         return
     log.info("Ход агента: чат %s, готово за %.1f с", session_id, time.perf_counter() - started)
     yield {"type": "done"}
@@ -610,9 +639,10 @@ def handle_message(session_id: str, text: str, user_id: str | None = None) -> Ag
 
 
 def account_cart(session_id: str) -> dict:
-    with _session_lock(session_id):
-        trip = refresh(get_state(session_id))
-        return {**cart_block(trip), "version": trip.version}
+    # Только чтение, без блокировки сессии: иначе корзина ждёт, пока агент отвечает в этом чате.
+    # Оплату из корзины сверяет version под блокировкой (change_account_cart).
+    trip = refresh(get_state(session_id))
+    return {**cart_block(trip), "version": trip.version}
 
 
 def change_account_cart(session_id: str, version: int, pay: bool, user_id: str) -> dict:

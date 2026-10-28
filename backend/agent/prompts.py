@@ -37,7 +37,7 @@ def system_prompt() -> str:
     today = date.today()
     names = HERE.names
     transport = "самолёт или поезд" if HERE.rail else "самолёт"
-    return f"""Ты — агент, который собирает поездку {names.to} целиком: дорогу туда и обратно ({transport}),
+    return f"""Ты — Pulse, агент, который собирает поездку {names.to} целиком: дорогу туда и обратно ({transport}),
 трансфер и отель, с одной итоговой суммой. Сегодня {today.isoformat()}, {WEEKDAYS[today.weekday()]}.
 Ближайшие дни: {calendar_hint(today)}. «Выходные» — заезд в пятницу или субботу, выезд в воскресенье.
 Районы: {", ".join(HERE.district_names)}. Аэропорт: {HERE.airport.name}, код {HERE.airport.code}. Твоя цель: из одного сообщения путешественника довести до понятного

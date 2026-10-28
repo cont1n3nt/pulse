@@ -71,6 +71,15 @@ def chat_data(chat: Chat) -> dict:
     }
 
 
+def short_title(text: str, limit: int = 32) -> str:
+    """Название чата из первого сообщения: целые слова до limit символов, остальное — многоточием."""
+    words = " ".join(text.split())
+    if len(words) <= limit:
+        return words
+    cut = words[:limit + 1].rsplit(" ", 1)[0] if " " in words[:limit + 1] else words[:limit]
+    return cut.rstrip(" ,.;:—-") + "…"
+
+
 def message_data(message: ChatMessage) -> dict:
     return {"id": message.id, "role": message.role, "content": message.content}
 
@@ -110,13 +119,16 @@ def save_reply(session_factory, chat_id: str, text: str) -> dict | None:
         return None
 
 
-def agent_stream(request: Request, chat_id: str, events) -> StreamingResponse:
-    """События агента в SSE. Текст ответа сохраняется в историю, даже если клиент отключился."""
+def agent_stream(request: Request, chat_id: str, events, opened: dict | None = None) -> StreamingResponse:
+    """События агента в SSE. Текст ответа сохраняется в историю, даже если клиент отключился.
+    opened — данные чата для события в самом начале: название из первого сообщения видно сразу."""
     session_factory = request.app.state.db
 
     def body():
         parts: list[str] = []
         saved = False
+        if opened:
+            yield f"data: {json.dumps({'type': 'chat', 'chat': opened}, ensure_ascii=False)}\n\n"
         try:
             for event in events:
                 if event["type"] == "token":
@@ -201,13 +213,15 @@ def chat(request: Request, payload: ChatRequest) -> StreamingResponse:
                 raise HTTPException(404, "Чат не найден")
             current = db.get(Chat, payload.session_id)
             if db.scalar(select(ChatMessage.id).where(ChatMessage.chat_id == current.id).limit(1)) is None:
-                current.title = " ".join(text.split())[:60]
+                current.title = short_title(text)
             db.add(ChatMessage(chat_id=current.id, role="user", content=text))
             db.commit()
+            db.refresh(current)
+            data = chat_data(current)
     except SQLAlchemyError as exc:
         raise HTTPException(503, "База данных недоступна") from exc
     # ID чата служит сессией агента: у каждого чата своя поездка и своя корзина
-    return agent_stream(request, payload.session_id, stream_message(payload.session_id, text, user_id))
+    return agent_stream(request, payload.session_id, stream_message(payload.session_id, text, user_id), data)
 
 
 @router.post("/api/chats/{chat_id}/checkout")
