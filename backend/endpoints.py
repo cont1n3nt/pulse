@@ -2,8 +2,10 @@ import hmac
 import hashlib
 import json
 import logging
+import threading
 import uuid
 from pathlib import Path
+from queue import Empty, Queue
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -24,6 +26,8 @@ from backend.models import ArchivedChat, HiddenOrder, Chat, ChatMessage, User, u
 log = logging.getLogger(__name__)
 router = APIRouter()
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
+HEARTBEAT_S = 15  # пауза в потоке ответа, после которой уходит «ping»; фронт ждёт данных до 60 с
+_END = object()
 
 
 class LoginRequest(BaseModel):
@@ -119,15 +123,16 @@ def save_reply(session_factory, chat_id: str, text: str) -> dict | None:
 
 
 def agent_stream(request: Request, chat_id: str, events, opened: dict | None = None) -> StreamingResponse:
-    """События агента в SSE. Текст ответа сохраняется в историю, даже если клиент отключился.
+    """События агента в SSE. Ход идёт в своём потоке и доводится до конца, даже если клиент
+    отключился: ответ сохраняется в историю. Пока агент молчит (модель думает или запрос
+    повторяется), раз в HEARTBEAT_S уходит SSE-комментарий: фронт видит, что соединение живо.
     opened — данные чата для события в самом начале: название из первого сообщения видно сразу."""
     session_factory = request.app.state.db
+    queue: Queue = Queue()
 
-    def body():
+    def run() -> None:
         parts: list[str] = []
         saved = False
-        if opened:
-            yield f"data: {json.dumps({'type': 'chat', 'chat': opened}, ensure_ascii=False)}\n\n"
         try:
             for event in events:
                 if event["type"] == "token":
@@ -135,11 +140,31 @@ def agent_stream(request: Request, chat_id: str, events, opened: dict | None = N
                 elif event["type"] == "done":
                     saved = True
                     if chat := save_reply(session_factory, chat_id, "".join(parts).strip()):
-                        yield f"data: {json.dumps({'type': 'chat', 'chat': chat}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                        queue.put({"type": "chat", "chat": chat})
+                queue.put(event)
+        except Exception:
+            # события агента уже обёрнуты в понятные ошибки; сюда попадает только сбой самого потока
+            log.exception("Поток ответа чата %s оборвался", chat_id)
+            queue.put({"type": "error", "detail": "Не получилось обработать запрос, попробуйте ещё раз."})
         finally:
             if not saved:
                 save_reply(session_factory, chat_id, "".join(parts).strip())
+            queue.put(_END)
+
+    threading.Thread(target=run, name=f"agent-{chat_id}", daemon=True).start()
+
+    def body():
+        if opened:
+            yield f"data: {json.dumps({'type': 'chat', 'chat': opened}, ensure_ascii=False)}\n\n"
+        while True:
+            try:
+                event = queue.get(timeout=HEARTBEAT_S)
+            except Empty:
+                yield ": ping\n\n"
+                continue
+            if event is _END:
+                return
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(body(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
