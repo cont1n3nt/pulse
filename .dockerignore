@@ -1,6 +1,13 @@
 .git
 .venv
 .env
+.env.*
 **/__pycache__
 *.sqlite3
 backend/data
+# справочники скачиваются при запуске в том: локальный кэш не должен попадать в образ,
+# иначе своя сборка отличается от чистой
+backend/seed/*_ru.json
+.claude
+.idea
+artifacts

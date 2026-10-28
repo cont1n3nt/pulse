@@ -62,7 +62,8 @@ let chatView = 0;
 const answering = () => streams.has(activeChatId);
 const inputLocked = () => chatBusy || !activeChatId || answering();
 const API_TIMEOUT_MS = 20000;
-const STREAM_IDLE_TIMEOUT_MS = 120000;
+// сервер шлёт «ping» каждые 15 с, пока агент думает: минута тишины — это обрыв связи, а не долгий ответ
+const STREAM_IDLE_TIMEOUT_MS = 60000;
 let accountEpoch = 0;
 let currentCode = null;
 let visible = false;
@@ -1065,7 +1066,7 @@ async function streamAgent(url, payload) {
   } catch (error) {
     if (onScreen()) {
       if (stream.controller.signal.aborted) error = new Error(stream.timedOut
-        ? 'Две минуты нет новых данных. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
+        ? 'Минуту нет связи с сервером. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
         : 'Ожидание остановлено. Запрос может ещё выполняться. Обновите чат перед повторной отправкой.');
       showChatError(error);
       chatReload.hidden = false;
@@ -1475,19 +1476,91 @@ function paintPurchases() {
     card.append(actions);
     basketList.append(card);
   }
+  paintOrderHistory();
+}
+
+let orderHistoryMode = 'upcoming';
+function orderDates(order) {
+  const starts = [], ends = [];
+  for (const item of order.items) {
+    const snap = item.snapshot || {};
+    const start = snap.check_in || snap.depart_at;
+    const end = snap.check_out || snap.arrive_at || snap.depart_at;
+    if (start && /^\d{4}-\d{2}-\d{2}/.test(start)) starts.push(start.slice(0, 10));
+    if (end && /^\d{4}-\d{2}-\d{2}/.test(end)) ends.push(end.slice(0, 10));
+  }
+  return { start: starts.sort()[0], end: ends.sort().at(-1) };
+}
+function paintOrderHistory() {
   const history = document.querySelector('#profile-orders');
+  const opened = new Set([...history.querySelectorAll('details[open]')].map(node => node.dataset.order));
   history.replaceChildren();
-  if (!purchases.orders.length) history.append(el('p', 'muted', 'Пока нет оформленных заказов.'));
-  for (const order of purchases.orders) {
-    const card = orderContent(order);
-    card.append(actionButton('Удалить из истории', async () => {
-      if (!await confirmAction({ title: 'Удалить заказ из истории?', description: 'Сам заказ останется действующим.', action: 'Удалить', danger: true })) return;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Moscow', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const entries = purchases.orders.map(order => {
+    const dates = orderDates(order);
+    return { order, ...dates, past: order.status === 'cancelled' || Boolean(dates.end && dates.end < today) };
+  });
+  const filters = el('div', 'history-filters');
+  filters.setAttribute('role', 'group');
+  filters.setAttribute('aria-label', 'Период поездок');
+  for (const [mode, label] of [['upcoming', 'Предстоящие'], ['past', 'Прошедшие']]) {
+    const count = entries.filter(entry => entry.past === (mode === 'past')).length;
+    const button = actionButton(`${label} · ${count}`, () => {
+      orderHistoryMode = mode;
+      paintOrderHistory();
+      history.querySelector('[aria-pressed="true"]').focus();
+      keepPanelInViewport();
+    }, 'history-filter');
+    button.dataset.mode = mode;
+    button.setAttribute('aria-pressed', String(orderHistoryMode === mode));
+    filters.append(button);
+  }
+  history.append(filters);
+  const timeline = el('div', 'history-scroll');
+  timeline.tabIndex = 0;
+  timeline.setAttribute('role', 'region');
+  timeline.setAttribute('aria-label', 'История поездок');
+  history.append(timeline);
+  const selected = entries.filter(entry => entry.past === (orderHistoryMode === 'past'));
+  selected.sort((a, b) => orderHistoryMode === 'past'
+    ? (b.start || '').localeCompare(a.start || '') : (a.start || '9999').localeCompare(b.start || '9999'));
+  if (!selected.length) timeline.append(el('p', 'muted', orderHistoryMode === 'past' ? 'Прошедших поездок пока нет.' : 'Предстоящих поездок пока нет.'));
+  let month = null;
+  for (const entry of selected) {
+    const { order, start, end, past } = entry;
+    const key = start?.slice(0, 7) || 'unknown';
+    if (key !== month) {
+      const title = start ? new Date(start + 'T12:00:00').toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' }) : 'Даты не указаны';
+      timeline.append(el('h3', 'history-month', title));
+      month = key;
+    }
+    const details = el('details', `history-trip${past ? ' is-past' : ''}`);
+    details.dataset.order = order.id;
+    details.open = opened.has(order.id);
+    const summary = el('summary', 'history-summary');
+    const dateLabel = value => new Date(value + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+    const date = el('span', 'history-date', start ? `${dateLabel(start)}${end && end !== start ? ' — ' + dateLabel(end) : ''}` : 'Без дат');
+    const hotel = order.items.find(item => item.kind === 'hotel');
+    const title = hotel?.snapshot?.name || hotel?.title || order.items[0]?.title || 'Поездка';
+    const info = el('span', 'history-info');
+    info.append(el('strong', '', title));
+    const status = order.status === 'cancelled' ? 'Отменена' : past ? 'Завершена' : start && start <= today ? 'В поездке' : 'Предстоит';
+    info.append(el('span', 'history-status', `${status} · ${rub(order.total_rub)}`));
+    summary.append(date, info, el('span', 'history-chevron', '⌄'));
+    details.append(summary);
+    const body = el('div', 'history-body');
+    body.append(el('p', 'muted', `Заказ ${order.id} · демо-оплата`), itemRows(order.items));
+    const feedback = el('p', 'form-error');
+    feedback.setAttribute('role', 'status');
+    body.append(actionButton('Удалить из истории', async () => {
+      if (!await confirmAction({ title: 'Удалить заказ из истории?', description: 'Будет скрыта только запись в истории.', action: 'Удалить', danger: true })) return;
       try {
         await api(`/api/orders/${encodeURIComponent(order.id)}`, { method: 'DELETE' });
         await refreshPurchases();
-      } catch (error) { messageEl.textContent = error.message; }
-    }, 'secondary'));
-    history.append(card);
+      } catch { feedback.textContent = 'Не удалось удалить. Попробуйте ещё раз.'; }
+    }, 'history-remove'), feedback);
+    details.append(body);
+    timeline.append(details);
   }
 }
 

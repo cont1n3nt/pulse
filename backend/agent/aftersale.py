@@ -9,7 +9,7 @@
 from collections.abc import Callable
 from datetime import date
 
-from .adapters import hotels as hotels_db
+from . import providers
 from .adapters import trains
 from .contracts import CartItem, FlightOption, HotelOption, Order, TransferOption
 from .location import HERE
@@ -55,7 +55,7 @@ def moved(order: Order, check_in: date, check_out: date, guests: int, origin: st
     hotel = ordered_hotel(order)
     if (check_in, check_out) == (hotel.check_in, hotel.check_out):
         raise CannotChange(f"Заказ {order.id} уже на эти даты.")
-    fresh = hotels_db.quote(hotel.id, check_in, check_out)
+    fresh = providers.hotels().quote(hotel.id, check_in, check_out)
     if fresh is None or not fresh.available:
         raise CannotChange(f"{hotel.name} на {_dates(check_in, check_out)} недоступен: предложи другие даты "
                            f"или новый подбор.")
@@ -83,7 +83,7 @@ def moved(order: Order, check_in: date, check_out: date, guests: int, origin: st
             else:
                 items.append(flight_item(flight, leg))
     if had_transfer:
-        transfer = transfer or hotels_db.transfer(fresh, guests)
+        transfer = transfer or providers.transfers().transfer(fresh, guests)
         if transfer:
             items.append(transfer_item(transfer))
     return items, notes
@@ -98,7 +98,7 @@ def transfer_for(order: Order, guests: int) -> CartItem:
         station, km = trains.nearest_station(hotel)
         transfer = trains.station_transfer(hotel, station, km, guests)
     else:
-        transfer = hotels_db.transfer(hotel, guests)
+        transfer = providers.transfers().transfer(hotel, guests)
     if transfer is None:
         raise CannotChange(f"Для {hotel.name} нет данных о дороге: трансфер не посчитать.")
     return transfer_item(transfer)

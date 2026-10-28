@@ -6,10 +6,10 @@ from datetime import date
 from langchain.tools import ToolRuntime
 from langchain_core.tools import tool
 
-from .. import memory, packages
-from ..adapters import aviasales, holidays, trains, weather
-from ..adapters import hotels as hotels_db
-from ..contracts import Requirements
+from .. import memory, packages, providers
+from ..adapters import holidays, trains, weather
+from ..adapters.hotels import diverse
+from ..contracts import Requirements, SourceUnavailable
 from ..location import HERE
 from ..reference import city_name, find_city
 from ..trip import _rub, apply, describe_cart, describe_issues, refresh
@@ -117,9 +117,9 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
     outbound = back = None
     if code != DESTINATION and not by_train:
         try:
-            outbound = aviasales.cheapest_on(code, DESTINATION, req.check_in, arrive_by=req.check_in)
-            back = aviasales.cheapest_on(DESTINATION, code, req.check_out)
-        except aviasales.SourceUnavailable:
+            outbound = providers.flights().cheapest_on(code, DESTINATION, req.check_in, arrive_by=req.check_in)
+            back = providers.flights().cheapest_on(DESTINATION, code, req.check_out)
+        except SourceUnavailable:
             notes.append("Сервис цен на перелёты недоступен: пакеты собраны без перелётов, скажи об этом.")
         else:
             if outbound is None:
@@ -137,7 +137,7 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
     if req.budget_rub:
         limit = max((req.budget_rub - flights_rub - TRANSFER_ESTIMATE_RUB) // nights, 0)
     required = list(req.must_have) + (["kids"] if req.children_ages and "kids" not in req.must_have else [])
-    candidates = hotels_db.search(
+    candidates = providers.hotels().search(
         req.check_in, req.check_out, req.district, None, required, req.near_sea,
         exclude_kinds=("hostel",) if req.children_ages else (), limit=CANDIDATES, diversify=False,
         target_per_night=limit)
@@ -160,13 +160,13 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
         try:
             flex = packages.flex_dates(
                 req, optimum.hotel,
-                aviasales.prices_around(code, DESTINATION, req.check_in, packages.FLEX_DAYS),
-                aviasales.prices_around(DESTINATION, code, req.check_out, packages.FLEX_DAYS))
-        except aviasales.SourceUnavailable:
+                providers.flights().prices_around(code, DESTINATION, req.check_in, packages.FLEX_DAYS),
+                providers.flights().prices_around(DESTINATION, code, req.check_out, packages.FLEX_DAYS))
+        except SourceUnavailable:
             flex = None
     forecast = weather.trip_weather(optimum.hotel.district, req.check_in, req.check_out)
 
-    shown = hotels_db.diverse(candidates, 5)
+    shown = diverse(candidates, 5)
     items = [p.model_dump(mode="json") for p in built]
     emit(runtime, "packages", items=items, flex=flex, weather=forecast)
     emit(runtime, "hotels", items=[h.model_dump(mode="json") for h in shown])
