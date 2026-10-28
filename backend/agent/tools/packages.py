@@ -47,7 +47,7 @@ def _origin(runtime: ToolRuntime, given: str | None, req: Requirements) -> tuple
 def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | None = None,
               check_out: str | None = None, adults: int | None = None, children_ages: list[int] | None = None,
               budget_rub: int | None = None, district: str | None = None, near_sea: bool | None = None,
-              transport: str | None = None, assumption: str | None = None):
+              transport: str | None = None, must_have: list[str] | None = None, assumption: str | None = None):
     """Собрать поездку целиком: 2–3 готовых пакета (перелёт или поезд туда и обратно + трансфер + отель)
     с одной итоговой суммой, сравнением в рублях, проверкой состыковок и погодой.
     Не для тех, кому дорога не нужна (уже на месте, едет на машине, «только отель»): им — search_hotels.
@@ -67,6 +67,8 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
         budget_rub: бюджет на всю поездку вместе с перелётами, в рублях.
         district: район локации (список — в системном промпте); «любой» — снять.
         near_sea: нужен ли отель до 500 м от моря.
+        must_have: полный новый список обязательных удобств из: wifi, pool, parking, kids, pets, breakfast,
+            beach_line, spa («с собакой» — ["pets"]); [] — снять все. Не передавай, если не менялся.
         transport: "train" — поездом («поездом», «не люблю летать», «боюсь самолётов»),
             "plane" — снова самолётом. Не передавай, если пользователь не говорил о транспорте.
         assumption: допущение, которое ты сделал сам («считаю 7 ночей»).
@@ -75,7 +77,8 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
     try:
         given, remark = prepare_changes(
             trip.requirements, check_in=check_in, check_out=check_out, adults=adults,
-            children_ages=children_ages, budget_rub=budget_rub, district=district, near_sea=near_sea)
+            children_ages=children_ages, budget_rub=budget_rub, district=district, near_sea=near_sea,
+            must_have=must_have)
     except BadInput as exc:
         return result(runtime, "plan_trip", str(exc), [])
     if transport is not None:

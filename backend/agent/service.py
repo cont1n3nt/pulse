@@ -105,7 +105,7 @@ def _resilience() -> list:
         # внешний слой: основная модель с повтором, при неудаче — следующая из списка
         middleware.append(ModelFallbackMiddleware(*[make_llm(m) for m in LLM_FALLBACK_MODELS]))
     middleware += [
-        ModelRetryMiddleware(max_retries=1, initial_delay=1.0, on_failure="error"),
+        ModelRetryMiddleware(max_retries=2, initial_delay=2.0, on_failure="error"),
         ToolRetryMiddleware(max_retries=2, tools=NETWORK_TOOLS, retry_on=(SourceUnavailable,),
                             on_failure=_network_failure, initial_delay=0.5),
     ]
