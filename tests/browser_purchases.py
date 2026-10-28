@@ -206,8 +206,10 @@ class BasketStatusTests(unittest.TestCase):
         self.click_and_wait_refresh('.purchase-card .pay')
         self.page.locator('#basket-close').click()
         self.click_and_wait_refresh('#profile-toggle')
-        self.assertEqual(self.page.locator('#profile-orders .order-box.cancelled').count(), 1)
-        self.assertIn('отменён (перенесён)', self.page.locator('#profile-orders .order-box.cancelled').inner_text())
+        self.page.locator('#tab-orders').click()
+        self.page.locator('[data-mode="past"]').click()
+        self.assertEqual(self.page.locator('#profile-orders .history-trip.is-past').count(), 1)
+        self.assertIn('Отменена', self.page.locator('#profile-orders .history-trip.is-past').inner_text())
 
     def test_recovery_clears_only_load_error_and_restores_profile(self):
         self.click_and_wait_refresh("#basket-toggle")
@@ -219,7 +221,7 @@ class BasketStatusTests(unittest.TestCase):
         self.refresh()
         self.assertEqual(self.status(), "")
         self.assertEqual(self.page.locator("#profile-orders .form-error").count(), 0)
-        self.assertIn("Пока нет оформленных заказов", self.page.locator("#profile-orders").inner_text())
+        self.assertIn("Предстоящих поездок пока нет.", self.page.locator("#profile-orders").inner_text())
 
     def test_profile_retry_clears_basket_error(self):
         self.click_and_wait_refresh("#profile-toggle")
@@ -240,7 +242,7 @@ class BasketStatusTests(unittest.TestCase):
         self.refresh()
         self.assertIn("оформлен и сохранён в профиле", self.status())
         self.assertNotIn("Temporary load failure", self.status())
-        self.assertEqual(self.page.locator("#profile-orders .order-box").count(), 1)
+        self.assertEqual(self.page.locator("#profile-orders .history-trip").count(), 1)
         self.assertEqual(self.page.locator(".purchase-card").count(), 0)
 
     def test_remove_confirmation_survives_refresh(self):
