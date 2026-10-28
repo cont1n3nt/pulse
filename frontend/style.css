@@ -55,8 +55,9 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 /* --- раскладка: чаты | диалог | поездка ------------------------------------------------- */
 
 .layout {
+  --sidebar-width: clamp(11rem, 13vw, 16rem);
   display: grid;
-  grid-template-columns: clamp(11rem, 13vw, 16rem) minmax(0, 54rem) minmax(22rem, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 54rem) minmax(22rem, 1fr);
   grid-template-rows: minmax(0, 1fr);
   gap: var(--gap);
   height: 100dvh;
@@ -99,7 +100,7 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 }
 .new-chat { margin-bottom: 1.1rem; font-size: 0.78rem; text-align: left; }
 .new-chat:disabled { opacity: 0.5; }
-.chats-toggle { display: none; }
+.chats-toggle { display: block; margin-bottom: 0.6rem; }
 .profile-toggle {
   display: flex;
   align-items: center;
@@ -142,7 +143,7 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 .section-head p { margin: 0; font-size: 0.65rem; }
 .muted { color: var(--muted); font-size: 0.72rem; }
 .trip-toggle {
-  display: none;
+  display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   flex-shrink: 0;
@@ -334,7 +335,8 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 }
 .trip-head h2 { margin: 0; font: 1.25rem "Playfair Display", serif; }
 .trip-close {
-  display: none;
+  display: block;
+  flex-shrink: 0;
   width: 2rem;
   height: 2rem;
   padding: 0;
@@ -519,12 +521,12 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 
 /* Очень широкие экраны: колонка диалога шире, карточки отелей — в несколько рядов */
 @media (min-width: 2200px) {
-  .layout { grid-template-columns: clamp(14rem, 11vw, 17rem) minmax(0, 60rem) minmax(26rem, 1fr); }
+  .layout { --sidebar-width: clamp(14rem, 11vw, 17rem); }
 }
 
 /* Ноутбуки и планшеты: поездка — выезжающая справа панель */
 @media (max-width: 1199px) {
-  .layout { grid-template-columns: clamp(10rem, 16vw, 13rem) minmax(0, 1fr); }
+  .layout { --sidebar-width: clamp(10rem, 16vw, 13rem); grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
   .trip-toggle { display: inline-flex; }
   .variants-hint { display: inline-block; }
   .trip-panel {
@@ -591,7 +593,9 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 
 /* Shared header baseline and readable trip details. */
 @media (min-width: 1200px) {
-  .layout { grid-template-columns: clamp(11rem, 13vw, 16rem) minmax(0, 1.3fr) minmax(26rem, 1fr); }
+  .layout { grid-template-columns: var(--sidebar-width) minmax(0, 1.3fr) minmax(26rem, 1fr); }
+  .trip-collapsed .layout { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
+  .trip-collapsed .trip-panel { display: none; }
 }
 .section-head { height: 6rem; padding: .65rem 0; }
 .trip-head { height: calc(6rem - 1px); flex-shrink: 0; align-items: center; padding: .65rem 1.1rem; }
@@ -609,6 +613,16 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 .sidebar-actions { margin-top: auto; padding-top: .7rem; display: flex; align-items: center; gap: .3rem; border-top: 1px solid var(--line); }
 .sidebar-actions .profile-toggle { margin: 0; flex: 1; width: auto; min-width: 0; padding: .5rem; font-size: .72rem; }
 .sidebar-actions .profile-toggle svg { width: 1.1rem; height: 1.1rem; flex-basis: 1.1rem; }
+@media (min-width: 651px) {
+  .chats-collapsed .layout { --sidebar-width: 3rem; }
+  .chats-collapsed .sidebar { padding-right: .3rem; }
+  .chats-collapsed .sidebar-main,
+  .chats-collapsed .new-chat span,
+  .chats-collapsed .profile-toggle span { display: none; }
+  .chats-collapsed .new-chat { padding: .5rem; font-size: 1.25rem; text-align: center; }
+  .chats-collapsed .sidebar-actions { flex-direction: column; }
+  .chats-collapsed .sidebar-actions .profile-toggle { flex: none; justify-content: center; }
+}
 .basket-toggle { position: relative; display: grid; place-items: center; width: 2.4rem; height: 2.4rem; flex-shrink: 0; border: 1px solid #d8e1dc; border-radius: .65rem; color: var(--accent); background: var(--mint); }
 .basket-toggle svg { width: 1.2rem; height: 1.2rem; }
 .basket-count { position: absolute; right: -.25rem; top: -.25rem; min-width: 1.1rem; padding: .1rem .25rem; border-radius: 1rem; background: var(--accent); color: white; font-size: .6rem; }
