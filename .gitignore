@@ -11,3 +11,4 @@ backend/seed/*_ru.json
 
 # базы агента: память диалогов и заказы
 backend/data/
+.env.jury
