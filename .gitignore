@@ -1,24 +1,17 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+.env
+.venv/
+__pycache__/
+*.pyc
+*.env
+*.sqlite3
 
-node_modules
-dist
-dist-ssr
-*.local
+# кэш справочников Travelpayouts (скачивается при первом запуске).
+# backend/seed/sochi/ — данные отелей из OpenStreetMap — хранится в репозитории
+backend/seed/*_ru.json
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# базы агента: память диалогов и заказы
+backend/data/
+.env.jury
+
+.idea/
+.ai/

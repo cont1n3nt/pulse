@@ -1,0 +1,29 @@
+[project]
+name = "pulse"
+version = "0.1.0"
+description = "Pulse: ИИ-агент, который собирает поездку целиком (дорога, трансфер, отель) и проверяет состыковки до оплаты"
+readme = "README.md"
+authors = [
+    { name = "cont1n3nt", email = "82307344+cont1n3nt@users.noreply.github.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.162.0",
+    "uvicorn==0.54.0",
+    "httptools==0.9.0",
+    "uvloop==0.23.0 ; sys_platform != 'win32' and platform_python_implementation == 'CPython'",
+    "langchain[openai]==1.4.7",
+    "langgraph==1.2.18",
+    "langgraph-checkpoint-sqlite==3.1.2",
+    "python-dotenv==1.2.4",
+    "requests==2.34.2",
+    "sqlalchemy==2.1.6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
