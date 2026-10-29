@@ -355,13 +355,17 @@ def itinerary(trip: TripState) -> list[dict]:
         return [codes[c].model_dump() for c in group if c in codes]
 
     steps = []
+    check_in = datetime.combine(hotel.check_in, check_in_time(hotel))
     if outbound:
         dep, arr = _local(outbound.depart_at), _local(outbound.arrive_at)
         steps.append(_leg_step(outbound, dep, arr))
         if minutes:
             steps.append({"kind": "transfer", "at": arr.isoformat(), "title": "Трансфер в отель",
                           "detail": f"около {minutes} мин", "issues": []})
-    check_in = datetime.combine(hotel.check_in, check_in_time(hotel))
+        # заселиться можно не раньше, чем доедешь: прилёт вечером — шаг после трансфера, а не в 14:00
+        at_hotel = arr + timedelta(minutes=minutes or 0)
+        if at_hotel.date() == hotel.check_in and at_hotel > check_in:
+            check_in = at_hotel
     steps.append({"kind": "checkin", "at": check_in.isoformat(), "title": f"Заселение: {hotel.name}",
                   "detail": f"с {check_in_time(hotel):%H:%M}, {hotel.district}",
                   "issues": issues(ARRIVAL_ISSUES + HOTEL_ISSUES)})

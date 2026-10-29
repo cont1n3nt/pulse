@@ -107,6 +107,14 @@ def test_itinerary_puts_issue_on_its_step():
     assert [s["at"] for s in steps] == sorted(s["at"] for s in steps)
 
 
+def test_itinerary_check_in_after_evening_arrival():
+    evening = flight(datetime.combine(CHECK_IN, datetime.min.time()).replace(hour=17), hours=2)
+    steps = trip_mod.itinerary(assembled(outbound=evening, back=evening_back()))
+    kinds = [s["kind"] for s in steps]
+    assert kinds.index("flight") < kinds.index("transfer") < kinds.index("checkin")
+    assert [s["at"] for s in steps] == sorted(s["at"] for s in steps)
+
+
 def test_night_arrival_on_check_in_day_is_night_without_room():
     night = flight(datetime.combine(CHECK_IN, datetime.min.time()).replace(hour=1), hours=1.5)
     trip = assembled(outbound=night, back=evening_back())
