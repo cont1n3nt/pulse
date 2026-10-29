@@ -1,6 +1,8 @@
 """Инструменты полной поездки: пакеты «перелёт или поезд + трансфер + отель», выбор пакета, праздники."""
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import date
 
 from langchain.tools import ToolRuntime
@@ -23,6 +25,8 @@ DEFAULT_ADULTS = 2
 CANDIDATES = 600  # с запасом: Эконом и Комфорт ищутся по всей выдаче, а не около ориентира цены
 TRANSFER_ESTIMATE_RUB = 3000  # для лимита за ночь, пока трансфер конкретного отеля неизвестен
 TRANSPORT = {"plane": "plane", "самолёт": "plane", "самолет": "plane", "train": "train", "поезд": "train"}
+TRAIN_HINT_WAIT_S = 4  # дольше сравнение с поездом не ждём: расписание догрузится в кэш для следующего хода
+_COMPARE = ThreadPoolExecutor(max_workers=2, thread_name_prefix="train-hint")
 
 
 def _origin(runtime: ToolRuntime, given: str | None, req: Requirements) -> tuple[str | None, str | None, str]:
@@ -155,6 +159,9 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
     optimum = next(p for p in built if p.id == "optimum")
     if by_train:
         outbound, back = optimum.outbound, optimum.back
+    # сравнение с поездом — подсказка, а не основа ответа: считается параллельно с гибкими датами и погодой
+    train_hint = (_COMPARE.submit(_train_option, code, req, optimum, guests)
+                  if rail and not by_train and optimum.flights_rub else None)
     flex = None
     if outbound and back and not by_train:
         try:
@@ -181,8 +188,11 @@ def plan_trip(runtime: ToolRuntime, origin: str | None = None, check_in: str | N
     lines.append(packages.describe(built))
     if req.budget_rub:
         lines.append(f"Бюджет {_rub(req.budget_rub)}.")
-    if rail and not by_train and optimum.flights_rub:
-        lines.append(_train_option(code, req, optimum, guests))
+    if train_hint is not None:
+        try:
+            lines.append(train_hint.result(timeout=TRAIN_HINT_WAIT_S))
+        except FutureTimeout:
+            log.info("сравнение с поездом не успело за %s с, ответ без него", TRAIN_HINT_WAIT_S)
     if flex:
         lines.append(f"Гибкие даты: если сдвинуть поездку на {flex['shift_days']:+d} дн. "
                      f"({date.fromisoformat(flex['check_in']):%d.%m}–{date.fromisoformat(flex['check_out']):%d.%m}), "

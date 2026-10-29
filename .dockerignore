@@ -10,4 +10,3 @@ backend/data
 backend/seed/*_ru.json
 .claude
 .idea
-artifacts

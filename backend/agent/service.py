@@ -568,9 +568,36 @@ def resume_checkout(session_id: str, approved: bool, user_id: str | None = None)
         if _pending_checkout(session_id) is None:
             yield {"type": "error", "detail": "Нет заказа, ожидающего подтверждения."}
             return
-        yield from _run(session_id, Command(resume={"approved": approved}), user_id)
+        spoke, order = False, None
+        for event in _run(session_id, Command(resume={"approved": approved}), user_id):
+            if event.get("type") == "token" and event["text"].strip():
+                spoke = True
+            elif event.get("type") == "block" and event.get("block") == "order":
+                order = event
+            yield event
+        # Модель после оплаты иногда молчит: без текста пользователю кажется, что ничего не произошло
+        if not spoke:
+            yield {"type": "token", "text": _checkout_note(order, approved)}
 
     yield from _guarded(session_id, events)
+
+
+def _checkout_note(event: dict | None, approved: bool) -> str:
+    """Запасной ответ после кнопки оплаты, если модель не написала текст сама."""
+    if not event:
+        return ("Оплата отменена, заказ не оформлен. Корзина сохранена — можно что-то поменять "
+                "или оформить позже." if not approved else
+                "Готово, заказ обрабатывается. Проверьте его в профиле, в разделе заказов.")
+    order = event.get("order") or {}
+    items = [item.get("title") for item in order.get("items", []) if item.get("title")]
+    total = f"{int(order.get('total_rub') or 0):,}".replace(",", " ")
+    text = f"Заказ {order.get('id', '')} оформлен! Итого {total} ₽."
+    if items:
+        text += " В заказ вошло: " + "; ".join(items) + "."
+    if event.get("cancelled"):
+        text += f" Прежний заказ {event['cancelled']} отменён."
+    return text + (" Оплата демонстрационная, деньги не списаны. Заказ можно посмотреть в профиле — "
+                   "если нужно, помогу с трансфером или изменениями.")
 
 
 def get_memory(user_id: str) -> dict:

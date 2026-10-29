@@ -2,13 +2,14 @@
 FROM python:3.11.18-slim-bookworm AS build
 
 ENV PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    UV_NO_CACHE=1
 
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# uv ставит пакеты параллельно: в несколько раз быстрее pip; сам uv в образ не попадает
+RUN pip install uv==0.12.19 && uv venv /opt/venv
 
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN uv pip install --python /opt/venv/bin/python -r requirements.txt
 
 
 # Этап 2: в образ попадают только окружение и код, без pip-кэша и временных файлов сборки
@@ -32,7 +33,7 @@ COPY frontend frontend
 
 USER pulse
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)"
 # за HTTPS-прокси (nginx, Caddy) схема и адрес берутся из X-Forwarded-*: иначе вход отклоняется по Origin
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips", "*"]

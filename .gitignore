@@ -13,7 +13,5 @@ backend/seed/*_ru.json
 backend/data/
 .env.jury
 
-# снимки браузерных тестов (tests/browser_*.py)
-artifacts/
 .idea/
 .ai/

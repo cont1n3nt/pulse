@@ -14,6 +14,7 @@
 
 import hashlib
 import math
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time, timedelta
 
 from ..contracts import FlightOption, HotelOption, TransferOption
@@ -127,6 +128,7 @@ def nearest_station(hotel: HotelOption) -> tuple[str, float]:
 
 
 LIVE_STATIONS_TRIED = 3  # не каждый поезд стоит в Лоо и Дагомысе: пробуем следующие станции
+_POOL = ThreadPoolExecutor(max_workers=LIVE_STATIONS_TRIED, thread_name_prefix="rasp")
 
 
 def for_hotel(code: str, check_in: date, check_out: date, hotel: HotelOption, guests: int = 1):
@@ -135,8 +137,13 @@ def for_hotel(code: str, check_in: date, check_out: date, hotel: HotelOption, gu
     С настоящим расписанием — ближайшая к отелю станция, где есть поезд в эти дни; иначе демо.
     """
     nearby = stations_by_distance(hotel)
-    for station, km in nearby[:LIVE_STATIONS_TRIED]:
-        found = live_legs(code, check_in, check_out, station)
+    tried = nearby[:LIVE_STATIONS_TRIED]
+    # станции запрашиваются параллельно: по очереди это 15–20 с холодного API, выбор — всё так же ближайшая
+    if rasp.enabled():
+        found_by_station = list(_POOL.map(lambda s: live_legs(code, check_in, check_out, s[0]), tried))
+    else:
+        found_by_station = [None] * len(tried)
+    for (station, km), found in zip(tried, found_by_station):
         if found:
             return *found, station_transfer(hotel, station, km, guests)
     station, km = nearby[0]

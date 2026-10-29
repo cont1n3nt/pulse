@@ -145,7 +145,7 @@ backend/
     tools/         инструменты агента; _state.py — общее для работы с состоянием
 frontend/          веб-клиент без сборки: index.html, app.js, style.css
 evals/             сценарии на настоящей модели и отчёты прогонов
-tests/             тесты ядра и API без сети и модели; browser_*.py — браузерные, нужен Playwright
+tests/             тесты ядра и API без сети и модели
 scripts/           выгрузка отелей локации из OpenStreetMap в seed: fetch_osm.py <локация>
 ```
 
@@ -168,7 +168,12 @@ uv sync
 cp .env.example .env    # вписать ключи (LLM_API_KEY, TRAVELPAYOUTS_TOKEN)
 uv run pytest                # тесты ядра и API, без ключей и сети
 uv run python -m evals.run   # сценарии на настоящей модели
+uv run uvicorn backend.main:app --reload   # сервис без Docker: http://127.0.0.1:8000
 ```
+
+Без uv: `python -m venv .venv`, затем `pip install -r requirements.txt` и
+`python -m uvicorn backend.main:app --reload`. Версии всех пакетов зафиксированы в `requirements.txt`
+и `uv.lock`, прямые зависимости перечислены в `pyproject.toml`.
 
 Без `LLM_API_KEY` сервис запускается: открываются чаты, корзина и заказы, а на сообщение агент отвечает,
 что модель не настроена. Предупреждение об этом есть в логе при старте.
