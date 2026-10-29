@@ -1937,5 +1937,30 @@ document.querySelector('#basket-toggle').addEventListener('click', openBasket);
 document.querySelector('#open-basket').addEventListener('click', openBasket);
 document.querySelector('#basket-close').addEventListener('click', () => basketDialog.close());
 basketDialog.addEventListener('click', event => { if (event.target === basketDialog && event.clientX < basketDialog.getBoundingClientRect().left) basketDialog.close(); });
+
+// Тема: стартовую ставит скрипт в <head>, кнопка переключает и запоминает выбор.
+const themeToggle = document.querySelector('#theme-toggle');
+const themeColor = document.querySelector('meta[name="theme-color"]');
+const systemDark = matchMedia('(prefers-color-scheme: dark)');
+function applyTheme(theme) {
+  const dark = theme === 'dark';
+  document.documentElement.dataset.theme = theme;
+  themeColor.content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  themeToggle.setAttribute('aria-pressed', String(dark));
+  themeToggle.title = dark ? 'Светлая тема' : 'Тёмная тема';
+  themeToggle.setAttribute('aria-label', themeToggle.title);
+}
+function savedTheme() {
+  try { return localStorage.getItem('pulse-theme'); } catch { return null; }
+}
+themeToggle.addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem('pulse-theme', next); } catch {}
+  applyTheme(next);
+});
+// Пока пользователь не выбрал тему сам, она следует за системной.
+systemDark.addEventListener('change', event => { if (!savedTheme()) applyTheme(event.matches ? 'dark' : 'light'); });
+applyTheme(document.documentElement.dataset.theme || 'light');
+
 loadLocation();
 initialize();
