@@ -53,14 +53,12 @@ const sections = {
 let activeUserId = null;
 let activeChatId = null;
 let chats = [];
-// короткие запросы (загрузка, переключение, создание и удаление чата) блокируют интерфейс целиком
+// Короткие действия: загрузка, создание и удаление чата, оплата корзины
 let chatBusy = true;
-// ходы агента, которые ещё идут, по id чата: пока агент отвечает, можно уйти в другой чат
+// Ответы агента по чатам: пока агент думает в одном чате, можно открыть другой или создать новый
 const streams = new Map();
-// растёт при каждой перерисовке чата: ход понимает, что его карточки уже не на экране
-let chatView = 0;
-const answering = () => streams.has(activeChatId);
-const inputLocked = () => chatBusy || !activeChatId || answering();
+// Фоновая догрузка готового ответа в открытый чат удерживает блокировку ввода до отрисовки
+const reloadingChats = new Map();
 const API_TIMEOUT_MS = 20000;
 // сервер шлёт «ping» каждые 15 с, пока агент думает: минута тишины — это обрыв связи, а не долгий ответ
 const STREAM_IDLE_TIMEOUT_MS = 60000;
@@ -116,6 +114,145 @@ confirmDialog.addEventListener('keydown', event => {
   } else if (!event.shiftKey && document.activeElement === last) {
     event.preventDefault();
     first.focus();
+  }
+});
+
+const renameDialog = document.querySelector('#rename-dialog');
+const renameForm = document.querySelector('#rename-form');
+const renameInput = document.querySelector('#rename-input');
+const renameCount = document.querySelector('#rename-count');
+const renameError = document.querySelector('#rename-error');
+const renameSubmit = document.querySelector('#rename-submit');
+let openMenuChatId = null;
+let renameTarget = null;
+let renamePending = false;
+let renameTriggerId = null;
+
+function closeChatMenus() {
+  openMenuChatId = null;
+  chatList.querySelectorAll('.chat-menu').forEach((menu) => { menu.hidden = true; });
+  chatList.querySelectorAll('.chat-options').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+}
+
+function updateRenameState() {
+  renameCount.textContent = `${renameInput.value.length} / 60`;
+  renameInput.removeAttribute('aria-invalid');
+  renameError.hidden = true;
+  renameSubmit.disabled = renamePending || !renameInput.value.trim();
+}
+
+function openRenameDialog(item) {
+  if (chatBusy || renameDialog.open || confirmDialog.open) return;
+  closeChatMenus();
+  const latest = chats.find((chat) => chat.id === item.id) || item;
+  renameTarget = { id: latest.id, epoch: accountEpoch };
+  renameTriggerId = latest.id;
+  renameInput.value = latest.title;
+  updateRenameState();
+  renameDialog.showModal();
+  renameInput.focus();
+  renameInput.select();
+}
+
+function closeRenameDialog() {
+  if (renamePending) return;
+  renameDialog.close();
+}
+
+renameDialog.addEventListener('close', () => {
+  renameTarget = null;
+  const trigger = renameTriggerId && chatList.querySelector(`.chat-options[data-chat="${CSS.escape(renameTriggerId)}"]`);
+  renameTriggerId = null;
+  if (trigger && !trigger.disabled) trigger.focus({ preventScroll: true });
+  else if (!newChatButton.disabled) newChatButton.focus({ preventScroll: true });
+});
+renameDialog.addEventListener('cancel', (event) => {
+  if (renamePending) event.preventDefault();
+});
+renameDialog.addEventListener('click', (event) => {
+  if (event.target !== renameDialog) return;
+  const rect = renameDialog.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
+    closeRenameDialog();
+  }
+});
+renameDialog.addEventListener('keydown', (event) => {
+  if (event.key !== 'Tab') return;
+  const controls = [...renameDialog.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
+  if (!controls.length) return;
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
+document.querySelector('#rename-close').addEventListener('click', closeRenameDialog);
+document.querySelector('#rename-cancel').addEventListener('click', closeRenameDialog);
+renameInput.addEventListener('input', updateRenameState);
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.chat-list-row')) closeChatMenus();
+});
+
+renameForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!renameTarget || renamePending) return;
+  const { id, epoch } = renameTarget;
+  const title = renameInput.value.trim().replace(/\s+/g, ' ');
+  if (!title || title.length > 60) {
+    renameError.textContent = 'Введите название от 1 до 60 символов';
+    renameError.hidden = false;
+    renameInput.setAttribute('aria-invalid', 'true');
+    renameInput.focus();
+    return;
+  }
+  renamePending = true;
+  setChatBusy(true);
+  renameDialog.setAttribute('aria-busy', 'true');
+  renameDialog.querySelectorAll('button, input').forEach((node) => { node.disabled = true; });
+  renameSubmit.textContent = 'Сохраняем…';
+  try {
+    const data = await api(`/api/chats/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    });
+    if (epoch !== accountEpoch) return;
+    chats = chats.map((chat) => (chat.id === id ? data.chat : chat));
+    if (activeChatId === id) chatTitle.textContent = data.chat.title;
+    if (purchases.carts.some((cart) => cart.chat_id === id)) {
+      purchases = {
+        ...purchases,
+        carts: purchases.carts.map((cart) => (cart.chat_id === id ? { ...cart, title: data.chat.title } : cart)),
+      };
+      paintPurchases();
+    }
+    renamePending = false;
+    setChatBusy(false);
+    renderChatList();
+    refreshPurchases();
+    renameDialog.close();
+  } catch (error) {
+    if (epoch === accountEpoch) {
+      renameError.textContent = error.message;
+      renameError.hidden = false;
+      renameInput.setAttribute('aria-invalid', 'true');
+    }
+  } finally {
+    renamePending = false;
+    renameDialog.removeAttribute('aria-busy');
+    renameDialog.querySelectorAll('button, input').forEach((node) => { node.disabled = false; });
+    renameSubmit.textContent = 'Сохранить';
+    if (epoch === accountEpoch) {
+      setChatBusy(false);
+      if (renameDialog.open) {
+        updateRenameState();
+        renameInput.focus();
+      }
+    }
   }
 });
 
@@ -308,13 +445,16 @@ async function api(path, options = {}) {
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   try {
     const response = await fetch(path, { credentials: 'same-origin', ...options, signal: controller.signal });
-    const data = await response.json().catch(() => ({}));  // 500 от прокси или сервера — не JSON
     if (!response.ok) {
-      const error = new Error(data.detail || 'Не удалось выполнить запрос');
+      const data = await response.json().catch((err) => {
+        if (controller.signal.aborted) throw err;
+        return {};
+      });  // 500 от прокси или сервера — не JSON
+      const error = new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось выполнить запрос');
       error.status = response.status;
       throw error;
     }
-    return data;
+    return await response.json();
   } catch (error) {
     if (controller.signal.aborted) {
       error = new Error('Сервер долго не отвечает. Попробуйте ещё раз.');
@@ -328,18 +468,26 @@ async function api(path, options = {}) {
   }
 }
 
+const agentThinking = () => streams.has(activeChatId);
+// В открытом чате нельзя писать: идёт короткое действие, подгрузка ответа или агент ещё отвечает здесь
+const chatLocked = () => chatBusy || !activeChatId || agentThinking() || reloadingChats.has(activeChatId);
+
 function setChatBusy(busy) {
   chatBusy = busy;
-  const locked = inputLocked();
-  newChatButton.disabled = !activeUserId || busy;
+  updateChatControls();
+}
+
+function updateChatControls() {
+  const thinking = agentThinking();
+  const locked = chatLocked();
+  // «Новый чат» и список чатов ждут только короткие действия, не ответ агента
+  newChatButton.disabled = !activeUserId || chatBusy;
+  chatList.querySelectorAll('button').forEach((button) => { button.disabled = chatBusy; });
   chatSend.disabled = locked;
-  chatSend.hidden = answering();
-  chatStop.hidden = !answering();
+  chatSend.hidden = thinking;
+  chatStop.hidden = !thinking;
   chatReload.disabled = locked;
-  // следующее сообщение можно набирать, пока агент отвечает; отправить — после ответа
-  chatInput.disabled = !activeChatId || busy;
-  chatList.querySelectorAll('.trip').forEach((button) => { button.disabled = busy; });
-  chatList.querySelectorAll('.delete-chat').forEach((button) => { button.disabled = busy || streams.has(button.dataset.chat); });
+  chatInput.disabled = locked;
   document.querySelectorAll('.suggestions .chip, .choose-hotel, .choose-package, .flex-button').forEach((button) => { button.disabled = locked; });
 }
 
@@ -405,26 +553,81 @@ function showChatError(error) {
 
 function renderChatList() {
   chatList.replaceChildren();
+  if (openMenuChatId && !chats.some((chat) => chat.id === openMenuChatId)) openMenuChatId = null;
   for (const item of chats) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `trip${item.id === activeChatId ? ' active' : ''}`;
     button.setAttribute('aria-current', item.id === activeChatId ? 'true' : 'false');
-    const busyHere = streams.has(item.id);
-    button.append(el('span', 'chat-name', item.title),
-      busyHere ? el('small', 'answering', 'отвечает…') : el('small', '', new Date(item.updated_at).toLocaleDateString('ru-RU')));
+    button.append(
+      el('span', 'chat-name', item.title),
+      streams.has(item.id)
+        ? el('small', 'thinking', 'Агент отвечает…')
+        : el('small', '', new Date(item.updated_at).toLocaleDateString('ru-RU')),
+    );
     button.title = item.title;
     button.disabled = chatBusy;
-    button.addEventListener('click', () => selectChat(item.id));
+    button.addEventListener('click', () => {
+      closeChatMenus();
+      selectChat(item.id);
+    });
     const row = el('div', 'chat-list-row');
-    const remove = el('button', 'delete-chat', '×');
-    remove.type = 'button';
-    remove.dataset.chat = item.id;
-    remove.title = 'Удалить чат';
-    remove.setAttribute('aria-label', `Удалить чат «${item.title}»`);
-    remove.disabled = chatBusy || busyHere;
-    remove.addEventListener('click', () => deleteChat(item));
-    row.append(button, remove);
+    const menuOpen = !chatBusy && openMenuChatId === item.id;
+    const options = el('button', 'chat-options', '⋯');
+    options.type = 'button';
+    options.dataset.chat = item.id;
+    options.title = 'Действия с чатом';
+    options.setAttribute('aria-label', `Действия с чатом «${item.title}»`);
+    options.setAttribute('aria-haspopup', 'menu');
+    options.setAttribute('aria-expanded', String(menuOpen));
+    options.disabled = chatBusy;
+    const menu = el('div', 'chat-menu');
+    menu.id = `chat-actions-${item.id}`;
+    menu.setAttribute('role', 'menu');
+    menu.hidden = !menuOpen;
+    options.setAttribute('aria-controls', menu.id);
+    const renameBtn = el('button', 'rename-chat', 'Переименовать');
+    renameBtn.type = 'button';
+    renameBtn.setAttribute('role', 'menuitem');
+    renameBtn.disabled = chatBusy;
+    renameBtn.addEventListener('click', () => openRenameDialog(item));
+    const removeBtn = el('button', 'delete-chat', 'Удалить чат');
+    removeBtn.type = 'button';
+    removeBtn.setAttribute('role', 'menuitem');
+    removeBtn.dataset.chat = item.id;
+    removeBtn.setAttribute('aria-label', `Удалить чат «${item.title}»`);
+    removeBtn.disabled = chatBusy;
+    removeBtn.addEventListener('click', () => {
+      closeChatMenus();
+      options.focus({ preventScroll: true });
+      deleteChat(item);
+    });
+    menu.append(renameBtn, removeBtn);
+    options.addEventListener('click', () => {
+      const opening = menu.hidden;
+      closeChatMenus();
+      if (opening) {
+        openMenuChatId = item.id;
+        menu.hidden = false;
+        options.setAttribute('aria-expanded', 'true');
+        renameBtn.focus();
+      }
+    });
+    menu.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeChatMenus();
+        options.focus({ preventScroll: true });
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const items = [...menu.querySelectorAll('button:not(:disabled)')];
+        if (!items.length) return;
+        const step = event.key === 'ArrowDown' ? 1 : items.length - 1;
+        items[(items.indexOf(document.activeElement) + step) % items.length].focus();
+      }
+    });
+    row.append(button, options, menu);
     chatList.append(row);
   }
 }
@@ -577,7 +780,7 @@ function packageCard(pkg, compact = false) {
   } else {
     const choose = el('button', 'choose-package', 'Выбрать');
     choose.type = 'button';
-    choose.disabled = inputLocked();
+    choose.disabled = chatLocked();
     choose.addEventListener('click', () => sendMessage(`Беру ${pkg.label}`));
     bottom.append(choose);
   }
@@ -603,7 +806,7 @@ function flexContent(flex) {
   const when = `${flex.shift_days < 0 ? 'раньше' : 'позже'} на ${days} ${plural(days, 'день', 'дня', 'дней')}`;
   const button = el('button', 'flex-button', `Сдвинуть ${when}: дешевле на ${rub(flex.saving_rub)}`);
   button.type = 'button';
-  button.disabled = inputLocked();
+  button.disabled = chatLocked();
   button.addEventListener('click', () => sendMessage(`Давай сдвинем поездку ${when}: с ${localDay(flex.check_in)} по ${localDay(flex.check_out)}`));
   return [button];
 }
@@ -667,7 +870,7 @@ function hotelCard(hotel, cartIds) {
   } else {
     const choose = el('button', 'choose-hotel', 'Выбрать');
     choose.type = 'button';
-    choose.disabled = inputLocked();
+    choose.disabled = chatLocked();
     // выбор идёт через агента: он положит отель в корзину и проверит поездку
     choose.addEventListener('click', () => sendMessage(`Беру «${hotel.name}»`));
     bottom.append(choose);
@@ -794,7 +997,10 @@ function resetTrip(trip) {
 // --- сообщения ------------------------------------------------------------------------------
 
 function clearChat() {
-  chatView += 1;
+  // Ответ в этом чате продолжается в фоне, но его место на экране пропадает
+  const stream = streams.get(activeChatId);
+  if (stream) stream.left = true;
+  reloadingChats.delete(activeChatId);
   activeChatId = null;
   chatMessages.replaceChildren(chatEmpty);
   chatEmpty.hidden = false;
@@ -894,7 +1100,7 @@ function setSuggestions(items) {
     const chip = el('button', 'chip', text);
     chip.type = 'button';
     chip.dataset.prompt = text;
-    chip.disabled = inputLocked();
+    chip.disabled = chatLocked();
     chip.addEventListener('click', () => sendMessage(text));
     return chip;
   }));
@@ -919,7 +1125,7 @@ function showConfirm(container, event) {
   if (event.replaces) card.append(el('p', 'muted', `Заказ ${event.replaces} отменится после оплаты нового`));
   if (event.issues?.length) card.append(issueList(event.issues));
   const decide = (approved) => {
-    if (inputLocked()) return;
+    if (chatLocked()) return;
     card.classList.add('decided');
     actions.replaceChildren(el('p', 'muted', approved ? 'Оплата подтверждена' : 'Оплата отменена'));
     streamAgent(`/api/chats/${encodeURIComponent(activeChatId)}/checkout`, { approved });
@@ -1021,16 +1227,16 @@ function updateChat(chat) {
   renderChatList();
 }
 
-// Один ход агента: запрос, поток SSE, текст и карточки в чате. Пока он идёт, можно открыть другой
-// чат: поток дочитывается в фоне, а сервер сохраняет ответ в историю.
+// Один ход агента: запрос, поток SSE, текст и карточки в чате.
+// Если пользователь ушёл в другой чат, поток дочитывается в фоне: сервер сохранит ответ в историю.
 async function streamAgent(url, payload) {
-  if (inputLocked()) return;
+  if (chatLocked()) return;
   const epoch = accountEpoch;
   const chatId = activeChatId;
-  const stream = { controller: new AbortController(), timedOut: false, view: chatView };
+  const stream = { controller: new AbortController(), timedOut: false, left: false, deleted: false };
   streams.set(chatId, stream);
-  // карточки этого хода на экране, пока пользователь не ушёл из чата и не перерисовал его
-  const onScreen = () => epoch === accountEpoch && chatId === activeChatId && stream.view === chatView;
+  const isCurrent = () => streams.get(chatId) === stream && epoch === accountEpoch && chatId === activeChatId && !stream.left;
+  let streamError = null;
   let timeout;
   const resetTimeout = () => {
     clearTimeout(timeout);
@@ -1042,9 +1248,9 @@ async function streamAgent(url, payload) {
   resetTimeout();
   chatError.hidden = true;
   chatReload.hidden = true;
-  renderChatList();
-  setChatBusy(chatBusy);
   const reply = addBotReply();
+  updateChatControls();
+  renderChatList();
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -1055,44 +1261,89 @@ async function streamAgent(url, payload) {
     });
     resetTimeout();
     if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.detail || 'Не удалось отправить сообщение');
+      const data = await response.json().catch((err) => {
+        if (stream.controller.signal.aborted) throw err;
+        return {};
+      });
+      throw new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось отправить сообщение');
     }
     await readEvents(response, (event) => {
-      if (stream.controller.signal.aborted || epoch !== accountEpoch) return;
+      if (epoch !== accountEpoch || stream.controller.signal.aborted) return;
+      // название и дата чата в списке обновляются, даже если открыт другой чат
       if (event.type === 'chat') updateChat(event.chat);
-      else if (onScreen() || event.type === 'error') handleEvent(reply, event);
+      else if (isCurrent() || event.type === 'error') handleEvent(reply, event);
     }, resetTimeout);
   } catch (error) {
-    if (onScreen()) {
-      if (stream.controller.signal.aborted) error = new Error(stream.timedOut
-        ? 'Минуту нет связи с сервером. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
-        : 'Ожидание остановлено. Запрос может ещё выполняться. Обновите чат перед повторной отправкой.');
+    if (stream.controller.signal.aborted) error = new Error(stream.timedOut
+      ? 'Минуту нет связи с сервером. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
+      : 'Ожидание остановлено. Запрос может ещё выполняться. Обновите чат перед повторной отправкой.');
+    streamError = error;
+    if (isCurrent()) {
       showChatError(error);
       chatReload.hidden = false;
     }
   } finally {
     clearTimeout(timeout);
     reply.finish();
+    // Поток всегда снимается с учёта, иначе чат останется заблокированным навсегда
     if (streams.get(chatId) === stream) streams.delete(chatId);
     if (epoch === accountEpoch) {
+      const shouldReload = chatId === activeChatId && stream.left && !stream.deleted;
+      let reloadToken = null;
+      if (shouldReload) {
+        reloadToken = Symbol();
+        reloadingChats.set(chatId, reloadToken);
+      }
+      updateChatControls();
       renderChatList();
-      setChatBusy(chatBusy);
-      if (chatId === activeChatId) {
-        // в чат вернулись посреди ответа: карточки этого хода не на экране, ответ берём из истории
-        if (stream.view !== chatView) reloadChat();
+      if (!stream.deleted) {
+        paintPurchases();
+        refreshPurchases();
+        if (!accountPanel.hidden) loadMemory();
+      }
+      if (chatId === activeChatId && !stream.deleted) {
+        // пользователь уходил из чата: на экране история без этого ответа, берём её с сервера, удерживая блокировку ввода
+        if (shouldReload) await reloadChat(chatId, reloadToken, streamError);
         else chatInput.focus();
       }
-      refreshPurchases();
+    }
+  }
+}
+
+// Подгрузить открытый чат заново, удерживая блокировку ввода до отрисовки ответа
+async function reloadChat(chatId, token = Symbol(), streamError = null) {
+  const epoch = accountEpoch;
+  reloadingChats.set(chatId, token);
+  updateChatControls();
+  try {
+    const data = await api(`/api/chats/${encodeURIComponent(chatId)}`);
+    if (epoch !== accountEpoch || reloadingChats.get(chatId) !== token || chatId !== activeChatId || streams.has(chatId)) return;
+    reloadingChats.delete(chatId);
+    displayChat(data);
+    updateChatControls();
+    if (streamError) {
+      showChatError(streamError);
+      chatReload.hidden = false;
+    }
+    if (!chatBusy) chatInput.focus();
+  } catch (error) {
+    if (epoch !== accountEpoch || reloadingChats.get(chatId) !== token || chatId !== activeChatId) return;
+    reloadingChats.delete(chatId);
+    chatMessages.querySelectorAll('.reasoning').forEach((node) => node.remove());
+    updateChatControls();
+    showChatError(streamError || error);
+    chatReload.hidden = false;
+  } finally {
+    if (reloadingChats.get(chatId) === token) {
+      reloadingChats.delete(chatId);
+      if (epoch === accountEpoch) updateChatControls();
     }
   }
 }
 
 chatStop.addEventListener('click', () => streams.get(activeChatId)?.controller.abort());
-chatReload.addEventListener('click', reloadChat);
-
-async function reloadChat() {
-  if (chatBusy || !activeChatId) return;
+chatReload.addEventListener('click', async () => {
+  if (chatLocked()) return;
   const epoch = accountEpoch;
   const chatId = activeChatId;
   setChatBusy(true);
@@ -1107,11 +1358,11 @@ async function reloadChat() {
       refreshPurchases();
     }
   }
-}
+});
 
 function sendMessage(text) {
   const message = text.trim();
-  if (!message || inputLocked()) return;
+  if (!message || chatLocked()) return;
   closePendingConfirms();
   addChatMessage('user', message);
   streamAgent('/api/chat', { session_id: activeChatId, message });
@@ -1130,9 +1381,10 @@ function displayChat(data) {
   }
   // заказ ждал подтверждения, когда страницу закрыли: возвращаем кнопку оплаты
   if (data.trip?.confirm) showConfirm((card) => chatMessages.append(card), data.trip.confirm);
+  // вернулись в чат, где агент ещё отвечает: ответ появится, когда он закончит
   if (streams.has(data.chat.id)) {
     const status = el('div', 'reasoning');
-    status.append(el('span', 'spinner'), el('span', 'status-text', 'Агент ещё отвечает в этом чате…'));
+    status.append(el('span', 'spinner'), el('span', 'status-text', 'Агент ещё отвечает…'));
     chatMessages.append(status);
   }
   scrollChat();
@@ -1141,8 +1393,16 @@ function displayChat(data) {
 }
 
 async function loadUserChats(userId) {
-  streams.forEach((stream) => stream.controller.abort());
+  // другой аккаунт: ответы прежнего обрываются
+  for (const stream of streams.values()) stream.controller.abort();
   streams.clear();
+  reloadingChats.clear();
+  closeChatMenus();
+  if (renameDialog.open) {
+    renamePending = false;
+    renameDialog.close();
+  }
+  if (confirmDialog.open) confirmDialog.close('cancel');
   activeUserId = userId;
   const epoch = ++accountEpoch;
   ++memoryRequest;
@@ -1156,6 +1416,7 @@ async function loadUserChats(userId) {
   loadMemory(true);
   chats = [];
   purchases = { carts: [], orders: [] };
+  orderHistoryMode = 'upcoming';
   purchasesError = '';
   setBasketActionMessage('');
   paintPurchases();
@@ -1239,7 +1500,7 @@ chatInput.addEventListener('keydown', (event) => {
 });
 chatForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  if (!chatInput.value.trim() || inputLocked()) return;
+  if (!chatInput.value.trim() || chatLocked()) return;
   const message = chatInput.value;
   chatInput.value = '';
   resizeChatInput();
@@ -1374,6 +1635,10 @@ form.addEventListener('submit', async (event) => {
 });
 document.addEventListener('keydown', (event) => {
   if (document.querySelector('dialog[open]')) return;
+  if (event.key === 'Escape' && openMenuChatId) {
+    closeChatMenus();
+    return;
+  }
   if (event.key === 'Escape') {
     if (mobileChatsQuery.matches) setChatsOpen(false);
     if (drawerQuery.matches) setTripOpen(false);
@@ -1410,9 +1675,17 @@ function actionButton(text, action, className = 'cancel') {
 }
 
 async function deleteChat(item) {
-  if (chatBusy || streams.has(item.id)) return;
+  if (chatBusy) return;
   if (!await confirmAction({ title: `Удалить чат «${item.title}»?`, description: 'Поездки и заказы сохранятся.', action: 'Удалить', danger: true }) || chatBusy) return;
   const epoch = accountEpoch;
+  // агент ещё отвечал в удаляемом чате: обрываем ожидание без сообщения об ошибке
+  const stream = streams.get(item.id);
+  if (stream) {
+    stream.left = true;
+    stream.deleted = true;
+    stream.controller.abort();
+  }
+  reloadingChats.delete(item.id);
   setChatBusy(true);
   try {
     await api(`/api/chats/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
@@ -1464,6 +1737,7 @@ function paintPurchases() {
     card.append(el('h3', '', cart.title), cartContent(cart));
     const actions = el('div', 'confirm-actions');
     const pay = actionButton(`Оплатить ${rub(cart.total_rub)}`, () => purchaseAction(cart, true), 'pay');
+    // пока агент отвечает в чате этой поездки, он может менять её корзину
     pay.disabled = purchaseBusy || chatBusy || streams.has(cart.chat_id) || cart.issues.some(i => i.severity === 'blocker');
     const remove = actionButton('Удалить', () => purchaseAction(cart, false), 'cancel danger');
     remove.disabled = purchaseBusy || chatBusy || streams.has(cart.chat_id);
@@ -1550,14 +1824,19 @@ function paintOrderHistory() {
     details.append(summary);
     const body = el('div', 'history-body');
     body.append(el('p', 'muted', `Заказ ${order.id} · демо-оплата`), itemRows(order.items));
-    const feedback = el('p', 'form-error');
+    const feedback = el('p', '');
     feedback.setAttribute('role', 'status');
+    feedback.hidden = true;
     body.append(actionButton('Удалить из истории', async () => {
       if (!await confirmAction({ title: 'Удалить заказ из истории?', description: 'Будет скрыта только запись в истории.', action: 'Удалить', danger: true })) return;
       try {
         await api(`/api/orders/${encodeURIComponent(order.id)}`, { method: 'DELETE' });
         await refreshPurchases();
-      } catch { feedback.textContent = 'Не удалось удалить. Попробуйте ещё раз.'; }
+      } catch {
+        feedback.className = 'form-error';
+        feedback.hidden = false;
+        feedback.textContent = 'Не удалось удалить. Попробуйте ещё раз.';
+      }
     }, 'history-remove'), feedback);
     details.append(body);
     timeline.append(details);

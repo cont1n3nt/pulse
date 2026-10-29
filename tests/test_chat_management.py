@@ -27,13 +27,32 @@ class ChatManagementTests(unittest.TestCase):
 
     def test_changes_require_origin(self):
         self.assertEqual(self.client.post("/api/chats").status_code, 403)
+        self.assertEqual(self.client.patch(f"/api/chats/{self.chat['id']}", json={"title": "Название"}).status_code, 403)
         self.assertEqual(self.client.delete(f"/api/chats/{self.chat['id']}").status_code, 403)
 
-    def test_other_users_cannot_read_or_delete(self):
+    def test_rename_persists_without_reordering(self):
+        second = self.client.post("/api/chats", headers=self.headers).json()["chat"]
+        response = self.client.patch(f"/api/chats/{self.chat['id']}", headers=self.headers,
+                                     json={"title": "  Сочи   в мае  "})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["chat"]["title"], "Сочи в мае")
+        self.assertEqual(response.json()["chat"]["updated_at"], self.chat["updated_at"])
+        listed = self.client.get("/api/chats").json()["chats"]
+        self.assertEqual([item["id"] for item in listed], [second["id"], self.chat["id"]])
+        self.assertEqual(listed[1]["title"], "Сочи в мае")
+
+    def test_invalid_names_rejected(self):
+        for title in ["", "   ", "x" * 61]:
+            response = self.client.patch(f"/api/chats/{self.chat['id']}", headers=self.headers,
+                                         json={"title": title})
+            self.assertEqual(response.status_code, 422)
+
+    def test_other_users_cannot_read_rename_or_delete(self):
         with TestClient(self.app, base_url="http://testserver") as other:
             other.post("/api/auth/guest", headers=self.headers)
             path = f"/api/chats/{self.chat['id']}"
             self.assertEqual(other.get(path).status_code, 404)
+            self.assertEqual(other.patch(path, headers=self.headers, json={"title": "Чужой"}).status_code, 404)
             self.assertEqual(other.delete(path, headers=self.headers).status_code, 404)
             self.assertEqual(other.get("/api/chats").json(), {"chats": []})
 
@@ -45,6 +64,7 @@ class ChatManagementTests(unittest.TestCase):
         self.assertEqual(self.client.delete(f"/api/chats/{chat_id}", headers=self.headers).status_code, 200)
         self.assertEqual(self.client.get("/api/chats").json(), {"chats": []})
         self.assertEqual(self.client.get(f"/api/chats/{chat_id}").status_code, 404)
+        self.assertEqual(self.client.patch(f"/api/chats/{chat_id}", headers=self.headers, json={"title": "Скрытый"}).status_code, 404)
         with self.app.state.db() as db:
             self.assertIsNone(db.scalar(select(ChatMessage)))
             # чат только скрыт: сессия агента с корзиной и заказами остаётся для «Покупок»
@@ -69,6 +89,15 @@ class ChatManagementTests(unittest.TestCase):
                                         json={"session_id": self.chat["id"], "message": message})
             self.assertEqual(response.status_code, 200)
         self.assertEqual(self.client.get(path).json()["chat"]["title"], "В Сочи на майские")
+
+    @patch("backend.endpoints.stream_message", return_value=iter([{"type": "done"}]))
+    def test_first_message_keeps_custom_name(self, stream):
+        path = f"/api/chats/{self.chat['id']}"
+        self.assertEqual(self.client.patch(path, headers=self.headers, json={"title": "Мой отпуск"}).status_code, 200)
+        response = self.client.post("/api/chat", headers=self.headers,
+                                    json={"session_id": self.chat["id"], "message": "В Сочи на майские"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get(path).json()["chat"]["title"], "Мой отпуск")
 
 
 if __name__ == "__main__":

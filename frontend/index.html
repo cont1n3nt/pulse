@@ -171,5 +171,21 @@
       </div>
     </form>
   </dialog>
+  <dialog id="rename-dialog" class="site-confirm rename-dialog" aria-labelledby="rename-dialog-title">
+    <form id="rename-form" novalidate>
+      <div class="site-confirm-head">
+        <h2 id="rename-dialog-title">Переименовать чат</h2>
+        <button id="rename-close" class="icon-button" type="button" aria-label="Закрыть окно">×</button>
+      </div>
+      <label class="rename-label" for="rename-input">Название чата</label>
+      <input id="rename-input" type="text" maxlength="60" autocomplete="off" aria-describedby="rename-count rename-error">
+      <div class="rename-meta"><span id="rename-count" aria-label="Количество символов, максимум 60">0 / 60</span></div>
+      <p id="rename-error" class="form-error" role="alert" hidden></p>
+      <div class="site-confirm-actions">
+        <button id="rename-cancel" type="button">Отмена</button>
+        <button id="rename-submit" type="submit">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>

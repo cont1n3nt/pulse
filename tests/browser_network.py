@@ -97,7 +97,7 @@ class NetworkRecoveryTests(browser_purchases.BasketStatusTests):
             self.page.wait_for_function('document.querySelector("#chat-messages").textContent.includes("Часть ответа")')
 
     def assert_unlocked(self):
-        self.page.wait_for_function('!chatBusy')
+        self.page.wait_for_function('!chatBusy && !chatLocked()')
         self.assertTrue(self.page.locator('#chat-input').is_enabled())
         self.assertTrue(self.page.locator('#new-chat').is_enabled())
         self.assertTrue(self.page.locator('#chat-stop').is_hidden())
