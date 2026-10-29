@@ -1,0 +1,21 @@
+services:
+  pulse:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+      PULSE_DB_PATH: /app/data/pulse.sqlite3
+    volumes:
+      - pulse-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  pulse-data:

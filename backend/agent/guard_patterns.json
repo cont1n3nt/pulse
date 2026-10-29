@@ -1,0 +1,46 @@
+{
+  "_comment": "Словарь защиты агента. Ключ = категория, значение = список регулярных выражений. Текст перед проверкой нормализуется: NFKC, нижний регистр, е вместо ё, без невидимых символов. Для русского пишите основы слов (игнорир\\w*), а не словоформы. Расширяйте список осторожно: слишком общие паттерны блокируют честных пользователей.",
+  "override": [
+    "(игнорир|забуд|отмен|сброс|отключ|не\\s+учитыва|пропуст|наруш)\\w*\\s+(все\\s+|любые\\s+|свои\\s+|эти\\s+|данные\\s+)?(предыдущ|прошл|прежн|выш|системн|исходн|имеющ|твои|свои)\\w*\\s+(инструкц|правил|указан|команд|промпт|ограничен|настройк)\\w*",
+    "(ignore|disregard|forget|override|bypass)\\s+(all\\s+|any\\s+|your\\s+|the\\s+)?(previous|prior|above|earlier|system|initial|safety)?\\s*(instructions?|rules?|prompts?|guidelines?|restrictions?|constraints?)",
+    "новые\\s+инструкции\\s*:",
+    "new\\s+instructions?\\s*:"
+  ],
+  "prompt_leak": [
+    "(покаж|выведи|выдай|напиши|повтор|пришли|раскрой|перечисл|скажи|процитируй|распечатай|перескажи)\\w*\\s+.{0,40}(системн\\w*\\s+(промпт|инструкц|сообщен)|свои\\s+(инструкц|правил|промпт|настройк)|исходн\\w*\\s+(промпт|инструкц)|инструкци\\w*\\s+выше|скрыт\\w*\\s+(инструкц|правил))",
+    "(reveal|show|print|repeat|output|leak|display|tell\\s+me)\\s+.{0,40}(system\\s+prompt|your\\s+(instructions|rules|prompt|configuration)|hidden\\s+(instructions|prompt))",
+    "system\\s*prompt",
+    "системн\\w*\\s+промпт",
+    "что\\s+написано\\s+в\\s+твоем\\s+(промпт|инструкц)"
+  ],
+  "jailbreak": [
+    "(ты\\s+теперь|с\\s+этого\\s+момента\\s+ты|отныне\\s+ты|теперь\\s+ты\\s+не)\\s",
+    "притворись\\s+(что\\s+)?(ты\\s+)?(не\\s+|другим|другой|без)",
+    "\\b(dan|jailbreak|jailbroken|do\\s+anything\\s+now|developer\\s+mode|god\\s+mode)\\b",
+    "(режим|mode)\\s+(разработчика|бога|dan|без\\s+огранич)",
+    "джейлбрейк|джеилбрейк",
+    "(обойд|обход|отключ|сними|убери)\\w*\\s+.{0,20}(огранич|защит|фильтр|цензур|безопасност|правил)",
+    "без\\s+(каких[\\s-]либо\\s+)?(огранич|цензур|фильтр|правил)",
+    "you\\s+are\\s+now\\s+(a|an|the|my|no\\s+longer)",
+    "act\\s+as\\s+(an?\\s+)?(unrestricted|unfiltered|jailbroken|evil)",
+    "pretend\\s+(to\\s+be|you\\s+are|that\\s+you)\\s+(not|an?\\s+(unrestricted|unfiltered))"
+  ],
+  "role_markers": [
+    "<\\s*/?\\s*(system|assistant|developer|im_start|im_end|tool)\\s*>",
+    "\\[\\s*/?\\s*(inst|system|sys)\\s*\\]",
+    "(^|\\n)\\s*(system|assistant|developer)\\s*:",
+    "(^|\\n)\\s*#{2,}\\s*(system|instruction|инструкц|системн)",
+    "<\\|[a-z_]+\\|>"
+  ],
+  "secrets": [
+    "(покаж|выведи|выдай|дай|скажи|пришли|напиши|reveal|show|print|leak|give\\s+me)\\w*\\s+.{0,30}(api[\\s_-]?key|ключ\\s+api|апи[\\s-]?ключ|секрет|парол|password|token|токен|\\.env|переменн\\w*\\s+окружен|environment\\s+variables?)"
+  ],
+  "abuse": [
+    "(выполни|запусти|исполни|execute|run|eval)\\w*\\s+.{0,25}(команд|код|скрипт|shell|bash|powershell|sql|python|терминал)",
+    "(drop|truncate|delete\\s+from)\\s+(table|database)",
+    "rm\\s+-rf",
+    "\\b(malware|ransomware|keylogger|phishing|ddos|exploit)\\b",
+    "hack(er|ers|ing|ed)?\\s+(into|a\\b|the\\b|account|server|website|wifi)",
+    "взлом\\w*|эксплойт\\w*|вредонос\\w*|кейлоггер\\w*|фишинг\\w*|ддос\\w*|шифровальщик\\w*"
+  ]
+}
