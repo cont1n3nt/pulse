@@ -1,9 +1,19 @@
 """Контракт между агентом и бэком: варианты поездки, состояние, заказ, ответ агента."""
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+# словарь удобств HotelOption.amenities: одинаковый для всех источников отелей
+AMENITY_CODES = ("wifi", "pool", "parking", "kids", "pets", "breakfast", "beach_line", "spa")
+AMENITY_NAMES = {"wifi": "Wi-Fi", "pool": "бассейн", "parking": "парковка", "kids": "для детей",
+                 "pets": "с животными", "breakfast": "завтрак", "beach_line": "первая линия",
+                 "spa": "спа"}
+
+
+class SourceUnavailable(Exception):
+    """Источник данных временно недоступен: инструмент повторит запрос, потом скажет пользователю честно."""
 
 
 class FlightOption(BaseModel):
@@ -64,6 +74,9 @@ class HotelOption(BaseModel):
     available: bool | None = None
     meal: Literal["none", "breakfast", "half_board", "all_inclusive"] | None = None
     free_cancellation: bool | None = None
+    # часы заселения и выезда этого объекта; None — типовые для локации (location.json)
+    check_in_time: time | None = None
+    check_out_time: time | None = None
 
 
 class TransferOption(BaseModel):

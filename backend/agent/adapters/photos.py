@@ -51,6 +51,16 @@ GENERIC_WORDS |= set(HERE.photo_stopwords)
 PLACE_TITLE = re.compile(r"hotel|отел|гостиниц|resort|sea|море|beach|пляж|embankment|набережн|promenade|"
                          r"view|вид|panorama|панорам|coast|берег|mountain|гор[аы]|sunset|закат|park|парк", re.I)
 IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+# Домены закрывшихся отелей перекупают под казино, а ссылка в OSM остаётся. Превью берём, только
+# если страница похожа на сайт жилья и не похожа на дорвей. Само слово «казино» в тексте не
+# приговор (в Красной Поляне оно рядом), поэтому в теле страницы ищем несколько разных признаков.
+GAMBLING = re.compile(r"casino|казино|слот|slots?\b|фриспин|free\s?spins?|игровы[ехм]\s+автомат|ставк[иау]\b|"
+                      r"букмекер|вейджер|wager|депозит|jackpot|джекпот|1win|1xbet|pin-?up|vavada|joycasino|"
+                      r"рабочее зеркало|покер|poker|рулетк", re.I)
+LODGING = re.compile(r"отел|гостиниц|hotel|hostel|хостел|апарт|номер|прожив|бронир|заселен|гостев|"
+                     r"guest|room|booking|санатори|пансионат", re.I)
+GAMBLING_MARKS = 3
+CACHE_VERSION = 2  # поднять, чтобы перепроверить уже скачанные фото
 
 _lock = threading.Lock()
 
@@ -87,11 +97,26 @@ def _fetch(url: str, limit: int) -> tuple[bytes, str]:
     raise Unsafe("слишком много редиректов")
 
 
+def _looks_like_lodging(page: str) -> bool:
+    """Заголовок, описание и превью без азартных слов, в тексте нет россыпи признаков казино, и есть слова про жильё."""
+    head = " ".join(m for pair in re.findall(r"<title[^>]*>([^<]*)</title>|<meta[^>]+content=[\"']([^\"']*)",
+                                             page, re.I | re.S) for m in pair)
+    if GAMBLING.search(head):
+        return False
+    text = re.sub(r"<script.*?</script>|<style.*?</style>|<[^>]+>", " ", page, flags=re.I | re.S)
+    if len({m.lower() for m in GAMBLING.findall(text)}) >= GAMBLING_MARKS:
+        return False
+    return bool(LODGING.search(head) or LODGING.search(text))
+
+
 def _og_image(website: str) -> str | None:
     body, kind = _fetch(website, MAX_HTML)
     if "html" not in kind:
         return None
     page = body.decode("utf-8", "ignore")
+    if not _looks_like_lodging(page):
+        log.info("Сайт %s не похож на сайт отеля, превью не берём", urlparse(website).hostname)
+        return None
     for pattern in (r'<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\'][^>]*content=["\']([^"\']+)',
                     r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*(?:property|name)=["\'](?:og:image|twitter:image)'):
         if found := re.search(pattern, page, re.I):
@@ -150,10 +175,11 @@ def _download(hotel_id: str, url: str) -> str | None:
 def photo(hotel: HotelOption) -> dict | None:
     """{"file", "source": "site" | "commons", "credit", "page"} или None, если фото не нашлось."""
     cached = _load_index().get(hotel.id)
-    if cached and (cached.get("file") or time.time() - cached.get("checked", 0) < RETRY_AFTER_S):
+    if cached and cached.get("v") == CACHE_VERSION and (
+            cached.get("file") or time.time() - cached.get("checked", 0) < RETRY_AFTER_S):
         return cached if cached.get("file") and (CACHE_DIR / cached["file"]).exists() else None
 
-    entry: dict = {"checked": time.time(), "file": None}
+    entry: dict = {"checked": time.time(), "file": None, "v": CACHE_VERSION}
     try:
         if hotel.website and (image := _og_image(hotel.website)):
             if name := _download(hotel.id, image):

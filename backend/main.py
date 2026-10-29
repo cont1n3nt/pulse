@@ -1,11 +1,14 @@
 import logging
 import os
 import secrets
+import sqlite3
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.agent.config import DATA_DIR, LLM_API_KEY
 from backend.auth import AuthState
@@ -21,6 +24,7 @@ logging.basicConfig(level=(os.getenv("LOG_LEVEL") or "INFO").upper(),
 # каждый HTTP-запрос клиентов виден и так по логам модели и инструментов
 for noisy in ("httpx", "httpx2", "httpcore", "openai", "urllib3"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
+log = logging.getLogger("pulse")
 
 
 def auth_key() -> str:
@@ -41,6 +45,14 @@ def create_app(database_url: str | None = None, secret_key: str | None = None) -
     app.state.auth = AuthState(secret_key or auth_key())
     app.state.db = make_session_factory(database_url)
 
+    # Сбой любой из баз (пользователи и чаты, заказы, состояние агента) — один ответ: 503 с причиной
+    async def database_unavailable(request: Request, exc: Exception) -> JSONResponse:
+        log.error("База недоступна на %s %s: %r", request.method, request.url.path, exc)
+        return JSONResponse({"detail": "База данных недоступна"}, status_code=503)
+
+    app.add_exception_handler(SQLAlchemyError, database_unavailable)
+    app.add_exception_handler(sqlite3.Error, database_unavailable)
+
     @app.middleware("http")
     async def revalidate_frontend(request, call_next):
         response = await call_next(request)
@@ -55,6 +67,6 @@ def create_app(database_url: str | None = None, secret_key: str | None = None) -
 
 app = create_app()
 if not LLM_API_KEY:
-    logging.getLogger("pulse").warning(
+    log.warning(
         "LLM_API_KEY не задан: интерфейс откроется, но агент отвечать не будет. "
         "Расшифруйте secrets.env.age в .env или впишите ключ и перезапустите сервис.")

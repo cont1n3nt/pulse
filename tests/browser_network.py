@@ -131,17 +131,17 @@ class NetworkRecoveryTests(browser_purchases.BasketStatusTests):
 
     def test_stream_timeout_preserves_partial_text_and_unlocks(self):
         self.start_stream('stall')
-        self.page.clock.fast_forward(120001)
+        self.page.clock.fast_forward(60001)
         self.assert_unlocked()
-        self.assertIn('Две минуты', self.page.locator('#chat-error').inner_text())
+        self.assertIn('Минуту нет связи', self.page.locator('#chat-error').inner_text())
         self.assertIn('Часть ответа', self.page.locator('#chat-messages').inner_text())
         self.assertTrue(self.page.locator('#chat-reload').is_visible())
 
     def test_stream_timeout_before_headers(self):
         self.start_stream('headers')
-        self.page.clock.fast_forward(120001)
+        self.page.clock.fast_forward(60001)
         self.assert_unlocked()
-        self.assertIn('Две минуты', self.page.locator('#chat-error').inner_text())
+        self.assertIn('Минуту нет связи', self.page.locator('#chat-error').inner_text())
 
     def test_user_stop_and_reload(self):
         self.start_stream('stall')
@@ -160,7 +160,7 @@ class NetworkRecoveryTests(browser_purchases.BasketStatusTests):
         previous = self.page.evaluate('activeChatId')
         self.page.locator('#new-chat').click()
         self.page.wait_for_function('id => activeChatId !== id && !chatBusy', arg=previous)
-        self.page.clock.fast_forward(120001)
+        self.page.clock.fast_forward(60001)
         self.assertTrue(self.page.locator('#chat-error').is_hidden())
         self.assertTrue(self.page.locator('#chat-reload').is_hidden())
 
@@ -191,14 +191,14 @@ class NetworkRecoveryTests(browser_purchases.BasketStatusTests):
         self.start_stream('done-open')
         self.assert_unlocked()
         self.assertTrue(self.page.locator('#chat-error').is_hidden())
-        self.page.clock.fast_forward(120001)
+        self.page.clock.fast_forward(60001)
         self.assertTrue(self.page.locator('#chat-error').is_hidden())
 
     def test_progress_resets_idle_deadline(self):
         self.start_stream('progress')
-        self.page.clock.fast_forward(90000)
+        self.page.clock.fast_forward(45000)
         self.page.wait_for_function('document.querySelector("#chat-messages").textContent.includes("продолжение")')
-        self.page.clock.fast_forward(90000)
+        self.page.clock.fast_forward(45000)
         self.assert_unlocked()
         self.assertTrue(self.page.locator('#chat-error').is_hidden())
 
@@ -209,7 +209,7 @@ class NetworkRecoveryTests(browser_purchases.BasketStatusTests):
         self.page.evaluate("async () => render(await api('/api/auth/guest', {method:'POST'}))")
         self.page.wait_for_function('id => activeUserId !== id && !chatBusy', arg=previous)
         self.assert_unlocked()
-        self.page.clock.fast_forward(120001)
+        self.page.clock.fast_forward(60001)
         self.assertNotIn('Часть ответа', self.page.locator('#chat-messages').inner_text())
         self.assertTrue(self.page.locator('#chat-error').is_hidden())
 

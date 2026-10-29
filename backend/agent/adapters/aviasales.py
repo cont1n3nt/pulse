@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta
 import requests
 
 from ..config import HTTP_TIMEOUT, TRAVELPAYOUTS_TOKEN
-from ..contracts import FlightOption
+from ..contracts import FlightOption, SourceUnavailable
 from ..reference import airlines
 from .hotels import LOCAL_TZ
 
@@ -22,10 +22,6 @@ GROUPED_URL = "https://api.travelpayouts.com/aviasales/v3/grouped_prices"
 CACHE_TTL_S = 1800  # кэш Aviasales сам обновляется не чаще, лишние запросы не нужны
 
 _cache: dict[tuple, tuple[float, object]] = {}
-
-
-class SourceUnavailable(Exception):
-    pass
 
 
 def to_flight(raw: dict) -> FlightOption:

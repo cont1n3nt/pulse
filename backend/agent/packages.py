@@ -10,7 +10,7 @@
 
 from datetime import date, timedelta
 
-from .adapters import hotels as hotels_db
+from . import providers
 from .adapters import trains
 from .contracts import CartItem, FlightOption, HotelOption, Package, Requirements, TripState
 from .location import HERE
@@ -58,7 +58,7 @@ def _package(tier: str, hotel: HotelOption, req: Requirements, outbound, back, r
         # поездом выходят на станции у отеля: своё время прибытия и такси от вокзала
         outbound, back, transfer = by_rail
     else:
-        transfer = hotels_db.transfer(hotel, guests)
+        transfer = providers.transfers().transfer(hotel, guests)
     flights = flights_cost(outbound, back, guests)
     total = hotel.total_price_rub + (flights or 0) + (transfer.price_rub if transfer else 0)
     return Package(
@@ -246,7 +246,7 @@ def flex_dates(req: Requirements, hotel: HotelOption, out_prices: dict[date, Fli
         out, back = out_prices.get(start), back_prices.get(end)
         if not out or not back or out.price_rub is None or back.price_rub is None:
             return None
-        quote = hotels_db.quote(hotel.id, start, end)
+        quote = providers.hotels().quote(hotel.id, start, end)
         if quote is None or not quote.available:
             return None
         return quote.total_price_rub + (out.price_rub + back.price_rub) * guests

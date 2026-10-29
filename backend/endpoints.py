@@ -2,8 +2,10 @@ import hmac
 import hashlib
 import json
 import logging
+import threading
 import uuid
 from pathlib import Path
+from queue import Empty, Queue
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -12,7 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
 
-from backend.agent import (account_cart, change_account_cart, forget_memory, get_memory, get_order,
+from backend.agent import (MAX_INPUT_CHARS, account_cart, change_account_cart, forget_memory, get_memory, get_order,
                            hotel_photo, resume_checkout, stream_message, trip_view)
 from backend.agent.service import update_memory
 from backend.agent.memory import MAX_TEXT
@@ -24,6 +26,8 @@ from backend.models import ArchivedChat, HiddenOrder, Chat, ChatMessage, User, u
 log = logging.getLogger(__name__)
 router = APIRouter()
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
+HEARTBEAT_S = 15  # пауза в потоке ответа, после которой уходит «ping»; фронт ждёт данных до 60 с
+_END = object()
 
 
 class LoginRequest(BaseModel):
@@ -32,7 +36,7 @@ class LoginRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=100)
-    message: str = Field(min_length=1, max_length=5000)
+    message: str = Field(min_length=1, max_length=MAX_INPUT_CHARS)
 
 
 class CheckoutDecision(BaseModel):
@@ -55,11 +59,8 @@ def current_user_id(request: Request) -> str | None:
     if user_id is None:
         return None
     # подпись верна, но базу могли стереть: такой сессии больше нет
-    try:
-        with request.app.state.db() as db:
-            return user_id if db.get(User, user_id) is not None else None
-    except SQLAlchemyError as exc:
-        raise HTTPException(503, "База данных недоступна") from exc
+    with request.app.state.db() as db:
+        return user_id if db.get(User, user_id) is not None else None
 
 
 def require_user_id(request: Request) -> str:
@@ -126,27 +127,48 @@ def save_reply(session_factory, chat_id: str, text: str) -> dict | None:
 
 
 def agent_stream(request: Request, chat_id: str, events, opened: dict | None = None) -> StreamingResponse:
-    """События агента в SSE. Текст ответа сохраняется в историю, даже если клиент отключился.
+    """События агента в SSE. Ход идёт в своём потоке и доводится до конца, даже если клиент
+    отключился: ответ сохраняется в историю. Пока агент молчит (модель думает или запрос
+    повторяется), раз в HEARTBEAT_S уходит SSE-комментарий: фронт видит, что соединение живо.
     opened — данные чата для события в самом начале: название из первого сообщения видно сразу."""
     session_factory = request.app.state.db
+    queue: Queue = Queue()
 
-    def body():
+    def run() -> None:
         parts: list[str] = []
         saved = False
         try:
-            if opened is not None:
-                yield f"data: {json.dumps({'type': 'chat', 'chat': opened}, ensure_ascii=False)}\n\n"
             for event in events:
                 if event["type"] == "token":
                     parts.append(event["text"])
                 elif event["type"] == "done":
                     saved = True
                     if chat := save_reply(session_factory, chat_id, "".join(parts).strip()):
-                        yield f"data: {json.dumps({'type': 'chat', 'chat': chat}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                        queue.put({"type": "chat", "chat": chat})
+                queue.put(event)
+        except Exception:
+            # события агента уже обёрнуты в понятные ошибки; сюда попадает только сбой самого потока
+            log.exception("Поток ответа чата %s оборвался", chat_id)
+            queue.put({"type": "error", "detail": "Не получилось обработать запрос, попробуйте ещё раз."})
         finally:
             if not saved:
                 save_reply(session_factory, chat_id, "".join(parts).strip())
+            queue.put(_END)
+
+    threading.Thread(target=run, name=f"agent-{chat_id}", daemon=True).start()
+
+    def body():
+        if opened:
+            yield f"data: {json.dumps({'type': 'chat', 'chat': opened}, ensure_ascii=False)}\n\n"
+        while True:
+            try:
+                event = queue.get(timeout=HEARTBEAT_S)
+            except Empty:
+                yield ": ping\n\n"
+                continue
+            if event is _END:
+                return
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(body(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -171,12 +193,9 @@ def index() -> HTMLResponse:
 
 @router.get("/health")
 def health(request: Request) -> dict[str, str]:
-    """Для healthcheck: сервер отвечает и база открывается."""
-    try:
-        with request.app.state.db() as db:
-            db.execute(text("SELECT 1"))
-    except SQLAlchemyError:
-        raise HTTPException(503, "База недоступна")
+    """Для healthcheck: сервер отвечает и база открывается (иначе 503, см. main.database_unavailable)."""
+    with request.app.state.db() as db:
+        db.execute(text("SELECT 1"))
     return {"status": "ok"}
 
 
@@ -208,24 +227,21 @@ def chat(request: Request, payload: ChatRequest) -> StreamingResponse:
     text = payload.message.strip()
     if not text:
         raise HTTPException(422, "Сообщение не может быть пустым")
-    try:
-        with request.app.state.db() as db:
-            # Acquire SQLite's write lock before reading the title or adding a message.
-            result = db.execute(update(Chat).where(
-                Chat.id == payload.session_id, Chat.user_id == user_id,
-                ~Chat.id.in_(select(ArchivedChat.chat_id)),
-            ).values(updated_at=utc_now()))
-            if result.rowcount == 0:
-                raise HTTPException(404, "Чат не найден")
-            current = db.get(Chat, payload.session_id)
-            if current.title == "Новый чат" and db.scalar(select(ChatMessage.id).where(ChatMessage.chat_id == current.id).limit(1)) is None:
-                current.title = short_title(text)
-            db.add(ChatMessage(chat_id=current.id, role="user", content=text))
-            db.commit()
-            db.refresh(current)
-            data = chat_data(current)
-    except SQLAlchemyError as exc:
-        raise HTTPException(503, "База данных недоступна") from exc
+    with request.app.state.db() as db:
+        # Acquire SQLite's write lock before reading the title or adding a message.
+        result = db.execute(update(Chat).where(
+            Chat.id == payload.session_id, Chat.user_id == user_id,
+            ~Chat.id.in_(select(ArchivedChat.chat_id)),
+        ).values(updated_at=utc_now()))
+        if result.rowcount == 0:
+            raise HTTPException(404, "Чат не найден")
+        current = db.get(Chat, payload.session_id)
+        if current.title == "Новый чат" and db.scalar(select(ChatMessage.id).where(ChatMessage.chat_id == current.id).limit(1)) is None:
+            current.title = short_title(text)
+        db.add(ChatMessage(chat_id=current.id, role="user", content=text))
+        db.commit()
+        db.refresh(current)
+        data = chat_data(current)
     # ID чата служит сессией агента: у каждого чата своя поездка и своя корзина
     return agent_stream(request, payload.session_id, stream_message(payload.session_id, text, user_id), data)
 
@@ -235,11 +251,8 @@ def checkout(request: Request, chat_id: str, decision: CheckoutDecision) -> Stre
     """Кнопка «Оплатить» или «Отмена» в карточке подтверждения: граф агента продолжается."""
     check_origin(request)
     user_id = require_user_id(request)
-    try:
-        with request.app.state.db() as db:
-            owned_chat(db, chat_id, user_id)
-    except SQLAlchemyError as exc:
-        raise HTTPException(503, "База данных недоступна") from exc
+    with request.app.state.db() as db:
+        owned_chat(db, chat_id, user_id)
     return agent_stream(request, chat_id, resume_checkout(chat_id, decision.approved, user_id))
 
 
@@ -290,47 +303,36 @@ def order(request: Request, order_id: str) -> dict:
             owned_chat(db, found.session_id, user_id, include_archived=True)
     except HTTPException:
         raise HTTPException(404, "Заказ не найден") from None
-    except SQLAlchemyError as exc:
-        raise HTTPException(503, "База данных недоступна") from exc
     return found.model_dump(mode="json")
 
 
 @router.get("/api/chats")
 def list_chats(request: Request) -> dict:
     user_id = require_user_id(request)
-    try:
-        with request.app.state.db() as db:
-            chats = db.scalars(select(Chat).where(Chat.user_id == user_id, ~Chat.id.in_(select(ArchivedChat.chat_id))).order_by(Chat.updated_at.desc(), Chat.id.desc())).all()
-            return {"chats": [chat_data(item) for item in chats]}
-    except SQLAlchemyError as exc:
-        raise HTTPException(503, "База данных недоступна") from exc
+    with request.app.state.db() as db:
+        chats = db.scalars(select(Chat).where(Chat.user_id == user_id, ~Chat.id.in_(select(ArchivedChat.chat_id))).order_by(Chat.updated_at.desc(), Chat.id.desc())).all()
+        return {"chats": [chat_data(item) for item in chats]}
 
 
 @router.post("/api/chats", status_code=201)
 def create_chat(request: Request) -> dict:
     check_origin(request)
     user_id = require_user_id(request)
-    try:
-        with request.app.state.db() as db:
-            item = Chat(id=str(uuid.uuid4()), user_id=user_id)
-            db.add(item)
-            db.commit()
-            db.refresh(item)
-            return {"chat": chat_data(item), "messages": []}
-    except SQLAlchemyError as exc:
-        raise HTTPException(503, "База данных недоступна") from exc
+    with request.app.state.db() as db:
+        item = Chat(id=str(uuid.uuid4()), user_id=user_id)
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        return {"chat": chat_data(item), "messages": []}
 
 
 @router.get("/api/chats/{chat_id}")
 def get_chat(request: Request, chat_id: str) -> dict:
     user_id = require_user_id(request)
-    try:
-        with request.app.state.db() as db:
-            item = owned_chat(db, chat_id, user_id)
-            messages = db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat_id).order_by(ChatMessage.id)).all()
-            data = {"chat": chat_data(item), "messages": [message_data(message) for message in messages]}
-    except SQLAlchemyError as exc:
-        raise HTTPException(503, "База данных недоступна") from exc
+    with request.app.state.db() as db:
+        item = owned_chat(db, chat_id, user_id)
+        messages = db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat_id).order_by(ChatMessage.id)).all()
+        data = {"chat": chat_data(item), "messages": [message_data(message) for message in messages]}
     data["trip"] = trip_data(chat_id)
     return data
 
@@ -363,12 +365,9 @@ def guest(request: Request, response: Response) -> dict[str, str]:
             return {"user_id": user_id}
         user_id = str(uuid.uuid4())
         code = auth.new_code()
-        try:
-            with request.app.state.db() as db:
-                db.add(User(id=user_id, password_hash=auth.digest(code)))
-                db.commit()
-        except SQLAlchemyError as exc:
-            raise HTTPException(503, "База данных недоступна") from exc
+        with request.app.state.db() as db:
+            db.add(User(id=user_id, password_hash=auth.digest(code)))
+            db.commit()
         set_cookie(request, response, user_id)
         return {"user_id": user_id, "code": code}
 
@@ -381,15 +380,12 @@ def login(request: Request, response: Response, payload: LoginRequest) -> dict[s
     if not auth.allow_login(address):
         raise HTTPException(429, "Слишком много попыток. Подождите минуту")
     digest = auth.digest(payload.code)
-    try:
-        with request.app.state.db() as db:
-            users = db.scalars(select(User)).all()
-            found = None
-            for user in users:
-                if hmac.compare_digest(user.password_hash, digest):
-                    found = user
-    except SQLAlchemyError as exc:
-        raise HTTPException(503, "База данных недоступна") from exc
+    with request.app.state.db() as db:
+        users = db.scalars(select(User)).all()
+        found = None
+        for user in users:
+            if hmac.compare_digest(user.password_hash, digest):
+                found = user
     if found is None:
         raise HTTPException(401, "Неверный код доступа")
     set_cookie(request, response, found.id)
@@ -405,15 +401,12 @@ def rotate(request: Request) -> dict[str, str]:
         if user_id is None:
             raise HTTPException(401, "Нет действующей сессии")
         code = auth.new_code()
-        try:
-            with request.app.state.db() as db:
-                user = db.get(User, user_id)
-                if user is None:
-                    raise HTTPException(401, "Пользователь не найден")
-                user.password_hash = auth.digest(code)
-                db.commit()
-        except SQLAlchemyError as exc:
-            raise HTTPException(503, "База данных недоступна") from exc
+        with request.app.state.db() as db:
+            user = db.get(User, user_id)
+            if user is None:
+                raise HTTPException(401, "Пользователь не найден")
+            user.password_hash = auth.digest(code)
+            db.commit()
         return {"user_id": user_id, "code": code}
 
 

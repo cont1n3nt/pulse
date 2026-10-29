@@ -8,6 +8,8 @@ from collections import defaultdict, deque
 
 COOKIE_NAME = "pulse_session"
 SESSION_AGE = 30 * 24 * 60 * 60
+LOGINS_PER_ADDRESS = 10
+LOGINS_TOTAL = 60
 
 
 class AuthState:
@@ -40,12 +42,16 @@ class AuthState:
         return f"{user_id}.{expires}.{self.digest(f'session:{user_id}.{expires}')}"
 
     def allow_login(self, address: str) -> bool:
+        """Попыток входа в минуту: с одного адреса и всего. Адрес за прокси берётся из X-Forwarded-For,
+        который можно подделать, поэтому общий предел держит перебор и при смене адреса."""
         now = time.monotonic()
         with self.lock:
-            attempts = self.login_attempts[address]
-            while attempts and now - attempts[0] >= 60:
-                attempts.popleft()
-            if len(attempts) >= 10:
-                return False
-            attempts.append(now)
+            buckets = [(self.login_attempts[address], LOGINS_PER_ADDRESS), (self.login_attempts["*"], LOGINS_TOTAL)]
+            for attempts, limit in buckets:
+                while attempts and now - attempts[0] >= 60:
+                    attempts.popleft()
+                if len(attempts) >= limit:
+                    return False
+            for attempts, _ in buckets:
+                attempts.append(now)
             return True
