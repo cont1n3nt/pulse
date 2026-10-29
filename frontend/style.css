@@ -724,6 +724,10 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 .sidebar-actions .profile-toggle { margin: 0; flex: 1; width: auto; min-width: 0; padding: .5rem; font-size: .72rem; }
 .sidebar-actions .profile-toggle svg { width: 1.1rem; height: 1.1rem; flex-basis: 1.1rem; }
 @media (min-width: 651px) {
+  /* Линия над списком чатов на одной высоте с линиями шапок чата и поездки (6rem). */
+  .chats-toggle, .new-chat { height: 2.4rem; }
+  .chats-toggle { margin-bottom: .6rem; }
+  .new-chat { margin-bottom: calc(.6rem - 1px); }
   .chats-collapsed .layout { --sidebar-width: 3rem; }
   .chats-collapsed .sidebar { padding-right: .3rem; }
   .chats-collapsed .sidebar-main,
