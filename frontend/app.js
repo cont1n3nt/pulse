@@ -1548,7 +1548,6 @@ function render(data) {
   showButton.hidden = !currentCode;
   showButton.textContent = 'Показать код';
   messageEl.textContent = '';
-  if (currentCode) setPanelOpen(true);
   if (activeUserId !== data.user_id) loadUserChats(data.user_id);
 }
 
