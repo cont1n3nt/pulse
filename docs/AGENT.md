@@ -22,7 +22,7 @@ ID чата служит `session_id` агента.
 | `POST /api/purchases/{chat_id}/pay` `{version}` | оформить корзину без вызова модели; перенос отменяет заменённый заказ после подтверждения |
 | `DELETE /api/purchases/{chat_id}` `{version}` | очистить корзину; исходный оплаченный заказ не отменяется |
 | `DELETE /api/orders/{id}` | скрыть заказ из истории, сохранив сам заказ |
-| `GET /api/memory`, `DELETE /api/memory` | что агент помнит о пользователе между чатами; стереть |
+| `GET /api/memory`, `PUT /api/memory`, `DELETE /api/memory` | что агент помнит о пользователе между чатами; сохранить текст, исправленный в профиле; стереть |
 | `GET /api/location` | локация агента: название, районы, есть ли поезда, подсказки для пустого чата |
 | `GET /api/hotels/{id}/photo` | фото отеля (сайт отеля или Wikimedia Commons), 404 — фото нет; источник и подпись в заголовках `X-Photo-*` |
 
@@ -88,7 +88,10 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 | `unavailable` / `price_changed` | blocker / warning | перепроверка наличия и цены на те же даты |
 | `amenity_*`, `hostel_with_kids` | blocker / warning | обязательные условия (дети, животные…) нет / не подтверждены |
 | `late_arrival`, `early_arrival` | blocker | прилёт не в день заезда |
+| `night_arrival` | warning | прилёт ночью в день заезда: эта ночь без жилья |
 | `early_checkin` | warning | прилёт + трансфер сильно раньше 14:00 |
+| `long_transfer` | warning с детьми / info | долгая дорога от аэропорта или вокзала до отеля |
+| `flights_order` | blocker | обратный рейс раньше прилёта рейса туда |
 | `late_departure`, `unused_night` | blocker / warning | обратный вылет не в день выезда |
 | `late_checkout` | info | между выездом в 12:00 и дорогой в аэропорт больше 3 часов |
 | `over_budget` | warning | итог (отель + билеты на всех гостей) больше бюджета |
@@ -105,6 +108,8 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
    заново с начала (поэтому до `interrupt()` у него нет побочных эффектов).
 4. При подтверждении `orders.create` пишет заказ в `orders.db` в `DATA_DIR`. Повторное подтверждение той же версии корзины
    возвращает тот же заказ. Оплата имитируется (`payment: "simulated"`).
+5. Если модель после кнопки ничего не написала, сервис сам добавляет короткий итог: номер заказа, сумму
+   и состав (`service._checkout_note`).
 
 ## После покупки
 
@@ -139,6 +144,7 @@ backend/
     location.py    локация: районы, аэропорт, вокзалы, море, сезонность (backend/seed/<id>/location.json)
     aftersale.py   перенос заказа и трансфер к купленному отелю (без LangChain)
     guardrails.py  фильтр входа, лимиты вызовов, очистка внешних данных
+    observability.py  логи вызовов модели и инструментов: время, токены, аргументы
     reference.py   справочники городов/авиакомпаний, кэш в DATA_DIR/reference
     providers.py   протоколы источников (отели, трансферы, билеты, бронирование) и реестр PULSE_PROVIDERS
     adapters/      сырой источник → стандартные модели (по файлу на источник)
