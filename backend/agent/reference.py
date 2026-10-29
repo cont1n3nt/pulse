@@ -3,15 +3,20 @@ import logging
 
 import requests
 
-from .config import HTTP_TIMEOUT, SEED_DIR
+from .config import DATA_DIR, HTTP_TIMEOUT, SEED_DIR
 
 log = logging.getLogger(__name__)
 
+# Кэш скачанных справочников лежит в DATA_DIR: в Docker это том, а код и seed в образе только для чтения.
+CACHE_DIR = DATA_DIR / "reference"
+
 
 def _load(name: str) -> list[dict]:
-    path = SEED_DIR / f"{name}_ru.json"
-    if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
+    path = CACHE_DIR / f"{name}_ru.json"
+    # старое место кэша: файлы, скачанные до переноса в DATA_DIR
+    for known in (path, SEED_DIR / f"{name}_ru.json"):
+        if known.exists():
+            return json.loads(known.read_text(encoding="utf-8"))
     try:
         resp = requests.get(f"https://api.travelpayouts.com/data/ru/{name}.json", timeout=HTTP_TIMEOUT)
         resp.raise_for_status()
@@ -20,8 +25,12 @@ def _load(name: str) -> list[dict]:
         # Не кэшируем пустой результат навсегда: при сбое сети следующий вызов попробует снова.
         log.warning("Не удалось загрузить справочник %s, используется запасной список", name)
         return []
-    SEED_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except OSError as exc:
+        # кэш — только ускорение: справочник уже в памяти, ход агента не должен падать
+        log.warning("Не удалось сохранить справочник %s: %s", name, exc)
     return data
 
 

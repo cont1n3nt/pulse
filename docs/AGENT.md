@@ -60,8 +60,13 @@ from backend.agent import stream_message, resume_checkout, pending_checkout, get
 ## Состояние поездки
 
 `TripState` хранится в состоянии графа LangGraph (поле `trip`) и сохраняется чекпоинтером в
-`agent_memory.db` вместе с историей диалога, поэтому переживает перезапуск сервера. Все файлы данных агента
-лежат в `DATA_DIR`: в Docker это том `/app/data`, при локальном запуске — `backend/data/`.
+`agent_memory.db` вместе с историей диалога, поэтому переживает перезапуск сервера. Где лежат данные:
+
+| Что | В Docker (том `pulse-data`) | При локальном запуске |
+|---|---|---|
+| пользователи и чаты (`PULSE_DB_PATH`) | `/app/data/pulse.sqlite3` | `./pulse.sqlite3` в каталоге запуска |
+| состояние диалогов, память, заказы, кэш фото, календаря и справочников (`DATA_DIR`) | `/app/data/` | `backend/data/` |
+| ключ подписи сессий, если не задан `PULSE_AUTH_KEY` | `/app/data/auth.key` | `backend/data/auth.key` |
 
 - Инструменты не меняют состояние напрямую. Они возвращают **операции** (`requirements`, `hotels`, `flights`,
   `cart_add`, `cart_remove`, `order`), а reducer `trip.reduce_trip` применяет их по очереди. Параллельные вызовы
@@ -134,7 +139,8 @@ backend/
     location.py    локация: районы, аэропорт, вокзалы, море, сезонность (backend/seed/<id>/location.json)
     aftersale.py   перенос заказа и трансфер к купленному отелю (без LangChain)
     guardrails.py  фильтр входа, лимиты вызовов, очистка внешних данных
-    reference.py   справочники городов/авиакомпаний → backend/seed/
+    reference.py   справочники городов/авиакомпаний, кэш в DATA_DIR/reference
+    providers.py   протоколы источников (отели, трансферы, билеты, бронирование) и реестр PULSE_PROVIDERS
     adapters/      сырой источник → стандартные модели (по файлу на источник)
     tools/         инструменты агента; _state.py — общее для работы с состоянием
 frontend/          веб-клиент без сборки: index.html, app.js, style.css
@@ -144,6 +150,9 @@ scripts/           выгрузка отелей локации из OpenStreetM
 ```
 
 ## Как добавить новый источник (например, трансферы)
+
+Заменить существующий источник (отели, трансферы, билеты, бронирование) — реализовать его протокол
+из `providers.py` и выбрать в `PULSE_PROVIDERS`, см. [OSTROVOK.md](OSTROVOK.md). Новый вид данных:
 
 1. `adapters/<источник>.py` → функция, возвращающая модели из `contracts.py`.
 2. `tools/<источник>.py` → `@tool` с параметром `runtime: ToolRuntime`. Результат — `result(runtime, name, text, ops)`

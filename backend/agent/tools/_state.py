@@ -6,8 +6,8 @@ from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
-from ..adapters import hotels as hotels_db
-from ..contracts import Requirements, TripState
+from ..contracts import AMENITY_CODES, Requirements, TripState
+from ..location import HERE
 from ..trip import itinerary, refresh
 
 MAX_NIGHTS = 30
@@ -127,15 +127,15 @@ def prepare_changes(current: Requirements, *, check_in: str | None = None, check
         if district.strip().lower() in CLEAR_WORDS:
             changes["district"] = None
         else:
-            canonical = next((d for d in hotels_db.DISTRICTS if d.lower() == district.strip().lower()), None)
+            canonical = next((d for d in HERE.district_names if d.lower() == district.strip().lower()), None)
             if canonical is None:
-                raise BadInput(f"Неизвестный район «{district}». Доступны: {', '.join(hotels_db.DISTRICTS)}.")
+                raise BadInput(f"Неизвестный район «{district}». Доступны: {', '.join(HERE.district_names)}.")
             changes["district"] = canonical
     if must_have is not None:
-        bad = [c for c in must_have if c not in hotels_db.AMENITY_CODES]
+        bad = [c for c in must_have if c not in AMENITY_CODES]
         if bad:
             raise BadInput(f"Неизвестные коды удобств: {', '.join(bad)}. "
-                           f"Допустимы: {', '.join(hotels_db.AMENITY_CODES)}.")
+                           f"Допустимы: {', '.join(AMENITY_CODES)}.")
         changes["must_have"] = list(dict.fromkeys(must_have))
     if near_sea is not None:
         changes["near_sea"] = near_sea

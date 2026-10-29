@@ -60,7 +60,8 @@ const streams = new Map();
 // Фоновая догрузка готового ответа в открытый чат удерживает блокировку ввода до отрисовки
 const reloadingChats = new Map();
 const API_TIMEOUT_MS = 20000;
-const STREAM_IDLE_TIMEOUT_MS = 120000;
+// сервер шлёт «ping» каждые 15 с, пока агент думает: минута тишины — это обрыв связи, а не долгий ответ
+const STREAM_IDLE_TIMEOUT_MS = 60000;
 let accountEpoch = 0;
 let currentCode = null;
 let visible = false;
@@ -1274,7 +1275,7 @@ async function streamAgent(url, payload) {
     }, resetTimeout);
   } catch (error) {
     if (stream.controller.signal.aborted) error = new Error(stream.timedOut
-      ? 'Две минуты нет новых данных. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
+      ? 'Минуту нет связи с сервером. Ожидание остановлено. Обновите чат, чтобы проверить результат.'
       : 'Ожидание остановлено. Запрос может ещё выполняться. Обновите чат перед повторной отправкой.');
     streamError = error;
     if (isCurrent()) {

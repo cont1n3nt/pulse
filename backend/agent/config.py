@@ -40,6 +40,8 @@ SEED_DIR = Path(env("SEED_DIR", str(Path(__file__).resolve().parent.parent / "se
 DATA_DIR = Path(env("DATA_DIR", str(Path(__file__).resolve().parent.parent / "data")))
 # Локация агента: папка backend/seed/<LOCATION> с location.json и hotels.json (см. location.py)
 LOCATION = env("PULSE_LOCATION", "sochi")
+# Источники отелей, билетов и заказов: имя из providers.REGISTRY или «модуль:функция» (см. providers.py)
+PROVIDERS = env("PULSE_PROVIDERS", "demo")
 
 
 def make_llm(model: str | None = None):
