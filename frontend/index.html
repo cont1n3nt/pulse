@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
 </head>
-<body>
+<body class="trip-collapsed chats-collapsed">
   <div class="layout">
     <aside class="sidebar" aria-label="Боковая панель">
       <button id="chats-toggle" class="chats-toggle" type="button" aria-label="Показать чаты" aria-controls="chat-list-panel" aria-expanded="false">☰</button>
@@ -43,12 +43,12 @@
         </button>
       </div>
       <div id="chat-messages" class="chat-preview" role="log" aria-label="Сообщения чата" aria-live="polite">
-        <p id="chat-empty" class="chat-empty">Опишите поездку своими словами: откуда, когда, с кем и на какой бюджет. Я соберу дорогу (самолёт или поезд), трансфер и отель и проверю, что всё стыкуется. Например: «Из Москвы в Сочи на майские, двое с ребёнком, до 120 тысяч».</p>
+        <p id="chat-empty" class="chat-empty">Опишите поездку своими словами: откуда, когда, с кем и бюджет. Я соберу полный путь, трансфер, отель и проверю, что всё стыкуется.</p>
       </div>
       <div id="suggestions" class="suggestions" aria-label="Подсказки">
-        <button class="chip" type="button" data-prompt="Из Москвы в Сочи на майские, двое с ребёнком 6 лет, до 120 тысяч">На майские с ребёнком</button>
-        <button class="chip" type="button" data-prompt="Хочу к морю на выходные, нас двое, бюджет до 50 тысяч">К морю на выходные</button>
-        <button class="chip" type="button" data-prompt="В горы в январе на неделю, двое взрослых, до 200 тысяч">В горы в январе</button>
+        <button class="chip" type="button" data-prompt="На майские с ребёнком">На майские с ребёнком</button>
+        <button class="chip" type="button" data-prompt="К морю на выходные">К морю на выходные</button>
+        <button class="chip" type="button" data-prompt="В горы в январе">В горы в январе</button>
       </div>
       <form id="chat-form" class="chat-form-preview">
         <textarea id="chat-input" rows="2" maxlength="2000" aria-label="Сообщение" placeholder="Куда, когда и с кем хотите поехать?" required></textarea>
@@ -88,19 +88,18 @@
           <h3>Перелёты и поезда</h3>
           <div id="flight-list" class="flight-list"></div>
         </section>
-        <p class="attribution">Отели, расстояния и маршруты: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">участники OpenStreetMap</a>, ODbL. Перелёты — кэш цен Aviasales. Расписание поездов — <a href="https://rasp.yandex.ru/" target="_blank" rel="noopener noreferrer">Яндекс Расписания</a> (без ключа — демо-расписание). Погода — <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>. Фото — сайты отелей и Wikimedia Commons. Цены отелей и такси, наличие, питание и отмена — демо.</p>
       </div>
       <div id="trip-checkout" class="trip-checkout" hidden>
         <div><span class="muted">Выбранная поездка</span><strong id="trip-checkout-total"></strong></div>
         <button id="open-basket" class="choose-hotel" type="button">В корзину →</button>
       </div>
+      <p class="attribution">Отели, расстояния и маршруты: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">участники OpenStreetMap</a>, ODbL. Перелёты — кэш цен Aviasales. Расписание поездов — <a href="https://rasp.yandex.ru/" target="_blank" rel="noopener noreferrer">Яндекс Расписания</a> (без ключа — демо-расписание). Погода — <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a>. Фото — сайты отелей и Wikimedia Commons. Цены отелей и такси, наличие, питание и отмена — демо.</p>
     </aside>
   </div>
   <div id="trip-backdrop" class="trip-backdrop" hidden></div>
 
   <section id="account-panel" class="account-panel" aria-labelledby="account-title" hidden>
     <div id="panel-drag" class="panel-header" aria-label="Перетащить панель аккаунта">
-      <span class="drag-grip" aria-hidden="true"></span>
       <h2 id="account-title">Мой аккаунт</h2>
       <button id="close-panel" class="close-panel" type="button" aria-label="Свернуть панель профиля" title="Свернуть">×</button>
     </div>
@@ -153,10 +152,12 @@
   </section>
   <dialog id="basket-dialog" class="basket-dialog" aria-labelledby="basket-title">
     <div class="basket-head"><div><p class="eyebrow">ВСЁ ДЛЯ ПУТЕШЕСТВИЯ</p><h2 id="basket-title">Корзина</h2></div><button id="basket-close" class="icon-button" type="button" aria-label="Закрыть корзину">×</button></div>
-    <p class="basket-intro">Выбранные поездки из всех чатов. Проверьте состав перед оформлением.</p>
     <p id="basket-status" role="status" aria-live="polite"></p>
     <div id="basket-list"></div>
-    <p class="basket-demo">Демонстрационная оплата — деньги не списываются. Оформленные заказы появятся в профиле.</p>
+    <footer class="basket-footer">
+      <p class="basket-intro">Выбранные поездки из всех чатов. Проверьте состав перед оформлением.</p>
+      <p class="basket-demo">Демонстрационная оплата — деньги не списываются. Оформленные заказы появятся в профиле.</p>
+    </footer>
   </dialog>
   <dialog id="confirm-dialog" class="site-confirm" aria-labelledby="confirm-title" aria-describedby="confirm-description">
     <form method="dialog">

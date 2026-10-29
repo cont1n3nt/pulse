@@ -32,13 +32,21 @@ const { chromium } = require('playwright');
     });
     const expanded = async (id, value) => {
       await page.waitForFunction(({ id, value }) => document.getElementById(id).getAttribute('aria-expanded') === String(value), { id, value });
+      await page.waitForFunction(() => document.getAnimations().every(animation =>
+        animation.effect.getComputedTiming().iterations === Infinity || animation.playState !== 'running'));
     };
     const width = selector => page.locator(selector).evaluate(el => el.getBoundingClientRect().width);
     for (const viewport of [1440, 1920, 2560, 3840]) {
       await page.setViewportSize({ width: viewport, height: 1080 });
       await page.goto('http://pulse.test');
       await page.waitForFunction(() => document.querySelector('#chat-title').textContent === 'Тестовая поездка');
+      await expanded('chats-toggle', false);
+      assert.equal(await page.locator('#chat-list-panel').isVisible(), false);
+      await page.click('#chats-toggle');
       await expanded('chats-toggle', true);
+      await expanded('trip-toggle', false);
+      assert.equal(await page.locator('#trip-panel').isVisible(), false);
+      await page.click('#trip-toggle');
       await expanded('trip-toggle', true);
       assert(await page.locator('#chats-toggle').isVisible());
       assert.equal(await page.locator('#trip-toggle').isVisible(), false);

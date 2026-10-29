@@ -299,6 +299,7 @@ window.addEventListener('resize', keepPanelInViewport);
 function setPanelOpen(open) {
   accountPanel.hidden = !open;
   if (!open) hideAccessCode();
+  if (open) resizeMemoryInput();
   if (open) centerPanel();
   document.body.classList.toggle('panel-open', open);
   profileToggle.setAttribute('aria-expanded', String(open));
@@ -349,6 +350,7 @@ accountTabs.forEach((tab, index) => {
       document.getElementById(item.getAttribute('aria-controls')).hidden = !selected;
     });
     hideAccessCode();
+    resizeMemoryInput();
     keepPanelInViewport();
   });
   tab.addEventListener('keydown', event => {
@@ -371,12 +373,24 @@ let savedMemory = '';
 let memoryLimit = 512;
 let memoryBusy = false;
 let memoryRequest = 0;
+function resizeMemoryInput() {
+  if (!memoryText.getClientRects().length) return;
+  const scrollTop = memoryText.scrollTop;
+  memoryText.style.height = 'auto';
+  const style = getComputedStyle(memoryText);
+  const borders = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+  memoryText.style.height = `${memoryText.scrollHeight + borders}px`;
+  memoryText.scrollTop = scrollTop;
+}
+window.addEventListener('resize', resizeMemoryInput);
+
 function updateMemoryControls() {
   const dirty = memoryText.value !== savedMemory;
   document.querySelector('#memory-count').textContent = `${Array.from(memoryText.value).length.toLocaleString('ru-RU')} / ${memoryLimit.toLocaleString('ru-RU')}`;
   saveMemory.disabled = memoryBusy || memoryText.disabled || !dirty || Array.from(memoryText.value).length > memoryLimit;
   resetMemory.disabled = memoryBusy || !dirty;
   forgetButton.disabled = memoryBusy;
+  resizeMemoryInput();
 }
 memoryText.addEventListener('input', () => {
   memoryStatus.textContent = 'Есть несохранённые изменения';
@@ -470,7 +484,7 @@ async function api(path, options = {}) {
 
 const agentThinking = () => streams.has(activeChatId);
 // В открытом чате нельзя писать: идёт короткое действие, подгрузка ответа или агент ещё отвечает здесь
-const chatLocked = () => chatBusy || !activeChatId || agentThinking() || reloadingChats.has(activeChatId);
+const chatLocked = () => chatBusy || !activeUserId || agentThinking() || reloadingChats.has(activeChatId);
 
 function setChatBusy(busy) {
   chatBusy = busy;
@@ -1002,6 +1016,7 @@ function clearChat() {
   if (stream) stream.left = true;
   reloadingChats.delete(activeChatId);
   activeChatId = null;
+  chatTitle.textContent = 'Спланируем поездку';
   chatMessages.replaceChildren(chatEmpty);
   chatEmpty.hidden = false;
   chatInput.value = '';
@@ -1230,7 +1245,7 @@ function updateChat(chat) {
 // Один ход агента: запрос, поток SSE, текст и карточки в чате.
 // Если пользователь ушёл в другой чат, поток дочитывается в фоне: сервер сохранит ответ в историю.
 async function streamAgent(url, payload) {
-  if (chatLocked()) return;
+  if (chatLocked() || !activeChatId) return;
   const epoch = accountEpoch;
   const chatId = activeChatId;
   const stream = { controller: new AbortController(), timedOut: false, left: false, deleted: false };
@@ -1360,9 +1375,26 @@ chatReload.addEventListener('click', async () => {
   }
 });
 
-function sendMessage(text) {
+async function sendMessage(text) {
   const message = text.trim();
   if (!message || chatLocked()) return;
+  if (!activeChatId) {
+    const epoch = accountEpoch;
+    setChatBusy(true);
+    try {
+      await createChat(epoch);
+    } catch (error) {
+      if (epoch === accountEpoch) {
+        showChatError(error);
+        chatInput.value = message;
+        resizeChatInput();
+      }
+      return;
+    } finally {
+      if (epoch === accountEpoch) setChatBusy(false);
+    }
+    if (epoch !== accountEpoch || !activeChatId) return;
+  }
   closePendingConfirms();
   addChatMessage('user', message);
   streamAgent('/api/chat', { session_id: activeChatId, message });
@@ -1428,12 +1460,14 @@ async function loadUserChats(userId) {
     const list = await api('/api/chats');
     if (epoch !== accountEpoch) return;
     chats = list.chats;
-    const data = chats.length
-      ? await api(`/api/chats/${encodeURIComponent(chats[0].id)}`)
-      : await api('/api/chats', { method: 'POST' });
-    if (epoch !== accountEpoch) return;
-    if (!chats.length) chats = [data.chat];
-    displayChat(data);
+    if (chats.length) {
+      const data = await api(`/api/chats/${encodeURIComponent(chats[0].id)}`);
+      if (epoch !== accountEpoch) return;
+      displayChat(data);
+    } else {
+      clearChat();
+      renderChatList();
+    }
     refreshPurchases();
   } catch (error) {
     if (epoch === accountEpoch) {
@@ -1465,16 +1499,20 @@ async function selectChat(id) {
   }
 }
 
+async function createChat(epoch) {
+  const data = await api('/api/chats', { method: 'POST' });
+  if (epoch !== accountEpoch) return;
+  chats.unshift(data.chat);
+  displayChat(data);
+}
+
 newChatButton.addEventListener('click', async () => {
   if (chatBusy || !activeUserId) return;
   const epoch = accountEpoch;
   setChatBusy(true);
   chatError.hidden = true;
   try {
-    const data = await api('/api/chats', { method: 'POST' });
-    if (epoch !== accountEpoch) return;
-    chats.unshift(data.chat);
-    displayChat(data);
+    await createChat(epoch);
   } catch (error) {
     if (epoch === accountEpoch) showChatError(error);
   } finally {
@@ -1519,19 +1557,16 @@ async function loadLocation() {
     const place = await api('/api/location');
     locationCity = place.city;
     if (!place.examples.length) return;
-    const chips = place.examples.map(({ label, prompt }) => {
+    const chips = place.examples.map(({ label }) => {
       const chip = el('button', 'chip', label);
       chip.type = 'button';
-      chip.dataset.prompt = prompt;
-      chip.addEventListener('click', () => sendMessage(prompt));
+      chip.dataset.prompt = label;
+      chip.addEventListener('click', () => sendMessage(label));
       return chip;
     });
     const showingDefaults = suggestionsBox.firstElementChild === defaultSuggestions[0];
     defaultSuggestions.splice(0, defaultSuggestions.length, ...chips);
     if (showingDefaults) suggestionsBox.replaceChildren(...defaultSuggestions);
-    chatEmpty.textContent = 'Опишите поездку своими словами: откуда, когда, с кем и на какой бюджет. '
-      + `Я соберу дорогу${place.trains ? ' (самолёт или поезд)' : ''}, трансфер и отель ${place.title === place.city ? '' : `(${place.title}) `}`
-      + `и проверю, что всё стыкуется. Например: «${place.examples[0].prompt}».`;
   } catch {
     // подсказки из разметки остаются
   }
@@ -1692,11 +1727,11 @@ async function deleteChat(item) {
     chats = chats.filter(chat => chat.id !== item.id);
     if (item.id === activeChatId) {
       clearChat();
-      const data = chats.length ? await api(`/api/chats/${encodeURIComponent(chats[0].id)}`)
-        : await api('/api/chats', { method: 'POST' });
-      if (epoch !== accountEpoch) return;
-      if (!chats.length) chats = [data.chat];
-      displayChat(data);
+      if (chats.length) {
+        const data = await api(`/api/chats/${encodeURIComponent(chats[0].id)}`);
+        if (epoch !== accountEpoch) return;
+        displayChat(data);
+      }
     }
     renderChatList();
     refreshPurchases();

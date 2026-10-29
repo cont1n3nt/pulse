@@ -93,8 +93,11 @@ class BasketStatusTests(unittest.TestCase):
             self.page.route("**/static/app.js?*", lambda route: route.fulfill(
                 path=source, content_type="application/javascript"))
         self.page.goto(self.url, wait_until="networkidle")
-        self.page.wait_for_function("activeChatId && !chatBusy")
+        self.page.wait_for_function("activeUserId && !chatBusy")
         self.page.locator("#close-panel").click()
+        self.page.locator("#new-chat").click()
+        self.page.wait_for_function("activeChatId && !chatBusy")
+        self.page.locator("#chats-toggle").click()
 
     def tearDown(self):
         self.context.close()

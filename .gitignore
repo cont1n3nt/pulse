@@ -15,3 +15,5 @@ backend/data/
 
 # снимки браузерных тестов (tests/browser_*.py)
 artifacts/
+.idea/
+.ai/

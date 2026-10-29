@@ -208,7 +208,8 @@ class ChatSwitchingWhileThinkingTests(browser_purchases.BasketStatusTests):
         self.page.locator("#chat-list .chat-options").first.click()
         self.page.locator("#chat-list .delete-chat").first.click()
         self.page.locator("#confirm-accept").click()
-        self.page.wait_for_function("id => activeChatId && activeChatId !== id && !chatBusy && !chatLocked()", arg=chat1)
+        self.page.wait_for_function("activeChatId === null && !chatBusy && !chatLocked()")
+        self.assertEqual(self.page.locator("#chat-list .trip").count(), 0)
         self.assertEqual(self.page.evaluate("streams.size"), 0)
         self.assertTrue(self.page.locator("#chat-error").is_hidden())
 

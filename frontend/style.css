@@ -23,6 +23,9 @@ html { font-size: clamp(13px, 0.4vw + 9.5px, 26px); }
   --bg: #f4f3ee;
   --danger: #a32929;
   --gap: clamp(0.75rem, 1.2vw, 1.75rem);
+  --motion-fast: 160ms;
+  --motion-panel: 240ms;
+  --motion-ease: cubic-bezier(.2, .8, .2, 1);
   font-family: Manrope, sans-serif;
   color: var(--ink);
   background: var(--bg);
@@ -34,7 +37,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; overscroll-behavior: n
 body { margin: 0; background: var(--bg); }
 button, input, textarea { font: inherit; }
 button { cursor: pointer; }
-button:disabled { cursor: wait; }
+button:disabled { cursor: default; }
 button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !important; }
 
 /* Подтверждения и переименование чата в общей палитре сайта. */
@@ -55,7 +58,7 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 #confirm-accept.is-danger:hover:not(:disabled) { background: #852323; }
 .rename-label { display: block; margin: .35rem 0; color: var(--ink-soft); font-size: .74rem; font-weight: 500; }
 #rename-input { display: block; width: 100%; padding: .6rem .7rem; border: 1px solid #a7c7be; border-radius: .5rem; background: #fff; color: var(--ink); font-size: .82rem; line-height: 1.4; }
-#rename-input:focus-visible { border-color: var(--accent); outline: 2px solid #a7c7be; outline-offset: 1px; }
+#rename-input:focus { outline: none; }
 #rename-input[aria-invalid="true"] { border-color: var(--danger); }
 #rename-input:disabled { background: var(--bg); color: var(--muted); }
 .rename-meta { display: flex; justify-content: flex-end; margin-top: .3rem; color: var(--muted); font-size: .65rem; }
@@ -83,6 +86,9 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
   border-right: 1px solid var(--line);
 }
 .sidebar-main { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+@media (min-width: 651px) {
+  .sidebar-main { border-top: 1px solid var(--line); padding-top: .7rem; }
+}
 .eyebrow { margin: 0.25rem 0 0.75rem; color: #8b9691; font-size: 0.6rem; letter-spacing: 0.06em; }
 .trip {
   display: block;
@@ -271,6 +277,8 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 
 .suggestions { display: flex; gap: 0.4rem; margin: 0.75rem 0; overflow-x: auto; overscroll-behavior: contain; scrollbar-width: none; }
 .suggestions::-webkit-scrollbar { display: none; }
+.suggestions > :first-child { margin-inline-start: auto; }
+.suggestions > :last-child { margin-inline-end: auto; }
 .chip {
   flex-shrink: 0;
   padding: 0.45rem 0.6rem;
@@ -292,7 +300,6 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
   border-radius: 0.65rem;
   background: var(--paper);
 }
-.chat-form-preview:focus-within { outline: 2px solid #a7c7be; outline-offset: 2px; }
 .chat-form-preview textarea {
   flex: 1;
   min-width: 0;
@@ -309,6 +316,9 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
   line-height: 1.5;
 }
 .chat-form-preview textarea::placeholder { color: var(--faint); }
+@media (min-width: 651px) {
+  .chat-form-preview, .suggestions { width: 44.4444%; align-self: center; }
+}
 .send {
   display: grid;
   place-items: center;
@@ -418,7 +428,6 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 }
 .panel-header { display: flex; align-items: center; gap: 0.55rem; min-height: 2.1rem; cursor: grab; touch-action: none; user-select: none; }
 .account-panel.dragging .panel-header { cursor: grabbing; }
-.drag-grip { width: 1.05rem; height: 0.25rem; flex: 0 0 1.05rem; border-radius: 4px; background: #a7c7be; }
 .panel-header h2 { flex: 1; margin: 0; font: 1.25rem "Playfair Display", serif; }
 .account-panel .close-panel { width: 1.9rem; height: 1.9rem; margin: 0; padding: 0; border: 0; border-radius: 0.5rem; background: var(--mint); color: var(--accent-ink); font-size: 1.3rem; line-height: 1; }
 .account-panel .close-panel:hover { background: var(--mint-strong); }
@@ -434,7 +443,7 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 .account-panel button.secondary:not(.close-panel):not(.code-box):hover { background: var(--mint-strong); }
 .account-panel form { margin-top: 0.9rem; font-size: 0.78rem; }
 .account-panel input { width: 100%; margin-top: 0.5rem; padding: 0.75rem; border: 1px solid #a7c7be; border-radius: 0.5rem; background: #fff; font-size: max(16px, 0.9rem); }
-.account-panel input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.account-panel :is(input, textarea):focus { outline: none; }
 .account-panel #toggle-login-code { width: auto; margin-top: 0.5rem; padding: 0.25rem 0; background: transparent; color: var(--accent-ink); text-align: left; }
 .account-panel #toggle-login-code:hover { background: transparent; text-decoration: underline; }
 .form-error { margin: 0.75rem 0 0; color: var(--danger); font-size: 0.78rem; line-height: 1.5; }
@@ -446,7 +455,7 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 .hotel-links { display: flex; gap: 0.8rem; font-size: 0.7rem; }
 .hotel-links a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .demo-mark { color: var(--faint); font-size: 0.65rem; }
-.attribution { margin: 1.2rem 0 0; color: var(--faint); font-size: 0.6rem; text-align: center; }
+.attribution { flex-shrink: 0; margin: 0; padding: 0.9rem 1.1rem 1.1rem; color: var(--faint); font-size: 0.6rem; text-align: center; }
 .attribution a { color: inherit; }
 
 /* фото отеля: пока не загрузилось или его нет — плашка с фактами о месте */
@@ -564,12 +573,11 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
   html { font-size: 14px; }
   .layout { grid-template-columns: 3rem minmax(0, 1fr); gap: 0.6rem; padding: 0.6rem; }
   .sidebar { padding-right: 0.3rem; }
-  .sidebar-main { display: none; }
   .chats-toggle { display: block; margin-bottom: 0.6rem; }
   .new-chat { padding: 0.5rem; font-size: 1.25rem; text-align: center; }
   .new-chat span { display: none; }
-  .chats-open .sidebar-main {
-    display: block;
+  .sidebar-main {
+    display: none;
     position: fixed;
     z-index: 6;
     top: 0.6rem;
@@ -582,6 +590,7 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
     background: var(--paper);
     box-shadow: 0 8px 24px #293f3e22;
   }
+  .chats-open .sidebar-main { display: block; }
   .profile-toggle { justify-content: center; padding: 0.6rem; }
   .profile-toggle span { display: none; }
   .trip-panel { width: 100vw; border-radius: 0; }
@@ -606,9 +615,13 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 
 /* Shared header baseline and readable trip details. */
 @media (min-width: 1200px) {
-  .layout { grid-template-columns: var(--sidebar-width) minmax(0, 1.3fr) minmax(26rem, 1fr); }
-  .trip-collapsed .layout { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
-  .trip-collapsed .trip-panel { display: none; }
+  /* Keep matching tracks so both side panels can resize smoothly. */
+  .layout { column-gap: 0; grid-template-columns: var(--sidebar-width) var(--gap) minmax(0, 1.3fr) var(--gap) minmax(26rem, 1fr); }
+  .sidebar { grid-column: 1; min-width: 0; overflow: hidden; }
+  .assistant { grid-column: 3; }
+  .trip-panel { grid-column: 5; overflow: hidden; }
+  .trip-collapsed .layout { grid-template-columns: var(--sidebar-width) var(--gap) minmax(0, 1fr) 0px minmax(0, 0fr); }
+  .trip-collapsed .trip-panel { opacity: 0; visibility: hidden; pointer-events: none; }
 }
 .section-head { height: 6rem; padding: .65rem 0; }
 .trip-head { height: calc(6rem - 1px); flex-shrink: 0; align-items: center; padding: .65rem 1.1rem; }
@@ -649,14 +662,19 @@ button[hidden], form[hidden], .account-panel[hidden], [hidden] { display: none !
 .chat-menu .delete-chat { color: var(--danger); }
 .chat-menu .delete-chat:hover:not(:disabled) { background: #f6e6e3; color: var(--danger); }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.basket-dialog { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(35rem, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh; padding: 1.5rem; border: 0; border-left: 1px solid var(--line); background: var(--paper); color: var(--ink); overflow-y: auto; box-shadow: -12px 0 48px #293f3e22; }
+.basket-dialog { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(35rem, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh; padding: 1.5rem; border: 0; border-left: 1px solid var(--line); background: var(--paper); color: var(--ink); overflow: hidden; box-shadow: -12px 0 48px #293f3e22; }
+.basket-dialog[open] { display: flex; flex-direction: column; }
 .basket-dialog::backdrop { background: #203b3855; backdrop-filter: blur(2px); }
-.basket-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.basket-head { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 1rem; }
 .basket-head h2 { font: 1.8rem 'Playfair Display', serif; margin: 0; }
 .icon-button { width: 2.4rem; height: 2.4rem; border: 0; border-radius: .6rem; background: var(--mint); color: var(--accent); font-size: 1.5rem; }
 .basket-intro, .basket-demo { color: var(--muted); font-size: .8rem; line-height: 1.6; }
+.basket-footer { flex-shrink: 0; padding-top: 1rem; }
+.basket-footer .basket-intro { margin: 0 0 1rem; }
+.basket-footer .basket-demo { margin: 0; }
 .basket-demo { border-top: 1px solid var(--line); padding-top: 1rem; font-size: .72rem; }
-#basket-status { font-size: .8rem; color: var(--accent); line-height: 1.5; }
+#basket-status { flex-shrink: 0; font-size: .8rem; color: var(--accent); line-height: 1.5; }
+#basket-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .basket-empty { padding: 3rem 1rem; text-align: center; color: var(--muted); line-height: 1.7; }
 .purchase-card { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: 1rem; background: white; }
 .purchase-card h3 { margin: 0 0 .75rem; font-size: .95rem; overflow-wrap: anywhere; }
@@ -686,11 +704,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .account-panel .account-actions > button { flex: 1; min-width: 0; }
 .account-panel .panel-intro { margin: 0.4rem 0 0.7rem; }
 .account-panel .profile-orders { margin: 0; padding: 0; border: 0; }
-.account-panel #memory-text { display: block; width: 100%; min-height: 7.5rem; max-height: 40dvh; resize: vertical; margin-top: 0.4rem; padding: 0.65rem; border: 1px solid var(--line-soft); border-radius: 0.5rem; background: var(--bg); color: var(--ink); font: inherit; font-size: 0.8rem; line-height: 1.6; }
+.account-panel #memory-text { display: block; width: 100%; min-height: min(7.5rem, 30dvh); max-height: min(10.5rem, 35dvh); resize: none; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #afbeb6 transparent; margin-top: 0.4rem; padding: 0.65rem; border: 1px solid var(--line-soft); border-radius: 0.5rem; background: var(--bg); color: var(--ink); font: inherit; font-size: 0.8rem; line-height: 1.6; }
 .account-panel .memory-meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.35rem; color: var(--ink-soft); font-size: 0.65rem; }
 .account-panel #memory-status { margin: 0.5rem 0; color: var(--ink-soft); font-size: 0.75rem; overflow-wrap: anywhere; }
 .account-panel #memory-status:empty, .account-panel #message:empty { display: none; }
-.account-panel :is(button, textarea, [role="tabpanel"]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.account-panel :is(button, [role="tabpanel"]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .account-panel #user-id { font-size: 0.7rem; color: var(--ink-soft); }
 .account-panel [role="tabpanel"] { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 420px) { .account-panel { padding: 0.75rem; } .account-panel button { min-height: 2.75rem; } }
@@ -730,3 +748,115 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 #profile-orders .history-filters { flex-shrink: 0; }
 #profile-orders .history-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #afbeb6 transparent; }
 #profile-orders .history-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Shared motion: animate visual states without delaying actions or moving focus. */
+:where(button, a[href], summary, [role="button"], input, textarea) {
+  transition: background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease, color var(--motion-fast) ease,
+    opacity var(--motion-fast) ease, box-shadow var(--motion-fast) ease,
+    filter var(--motion-fast) ease, scale var(--motion-fast) var(--motion-ease),
+    text-decoration-color var(--motion-fast) ease;
+}
+@media (hover: hover) {
+  :where(button, summary, [role="button"]):not(:disabled):not([aria-disabled="true"]):hover { filter: brightness(.97); }
+  a[href]:hover { color: var(--accent-dark); text-decoration-color: currentColor; }
+}
+:where(button, summary, [role="button"]):not(:disabled):not([aria-disabled="true"]):active { scale: .98; }
+a[href]:active { opacity: .7; }
+.history-chevron { transition: transform var(--motion-fast) var(--motion-ease); }
+.layout { transition: grid-template-columns var(--motion-panel) var(--motion-ease); }
+@supports (interpolate-size: allow-keywords) {
+  .history-trip { interpolate-size: allow-keywords; }
+  .history-trip::details-content {
+    block-size: 0;
+    opacity: 0;
+    overflow: clip;
+    transition: block-size var(--motion-panel) var(--motion-ease), opacity var(--motion-fast) ease,
+      content-visibility var(--motion-panel) allow-discrete;
+  }
+  .history-trip[open]::details-content { block-size: auto; opacity: 1; }
+}
+
+/* Discrete display/overlay transitions keep native dialogs in the top layer until faded out. */
+:is(.site-confirm, .basket-dialog) {
+  opacity: 0;
+  translate: 0 .6rem;
+  scale: .98;
+  transition: opacity var(--motion-panel) ease,
+    translate var(--motion-panel) var(--motion-ease), scale var(--motion-panel) var(--motion-ease),
+    display var(--motion-panel) allow-discrete, overlay var(--motion-panel) allow-discrete;
+}
+.basket-dialog { translate: 2rem 0; scale: 1; }
+:is(.site-confirm, .basket-dialog)[open] { opacity: 1; translate: 0 0; scale: 1; }
+:is(.site-confirm, .basket-dialog):not([open]) { pointer-events: none; }
+:is(.site-confirm, .basket-dialog)::backdrop {
+  opacity: 0;
+  transition: opacity var(--motion-panel) ease,
+    display var(--motion-panel) allow-discrete, overlay var(--motion-panel) allow-discrete;
+}
+:is(.site-confirm, .basket-dialog)[open]::backdrop { opacity: 1; }
+
+/* Keep the draggable account panel's geometry unchanged while it fades. */
+.account-panel, .chat-menu, .trip-backdrop {
+  opacity: 1;
+  transition: opacity var(--motion-panel) ease, display var(--motion-panel) allow-discrete;
+}
+:is(.account-panel, .chat-menu, .trip-backdrop)[hidden] { opacity: 0; pointer-events: none; }
+.chat-menu {
+  translate: 0 0;
+  transition: opacity var(--motion-fast) ease, translate var(--motion-fast) var(--motion-ease),
+    display var(--motion-fast) allow-discrete;
+}
+.chat-menu[hidden] { translate: 0 -.3rem; }
+
+@starting-style {
+  :is(.site-confirm, .basket-dialog)[open] { opacity: 0; translate: 0 .6rem; scale: .98; }
+  .basket-dialog[open] { translate: 2rem 0; scale: 1; }
+  :is(.site-confirm, .basket-dialog)[open]::backdrop { opacity: 0; }
+  :is(.account-panel, .chat-menu, .trip-backdrop):not([hidden]) { opacity: 0; }
+  .chat-menu:not([hidden]) { translate: 0 -.3rem; }
+}
+
+@keyframes content-appear {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.account-panel [role="tabpanel"]:not([hidden]),
+#account-view:not([hidden]), #login-view:not([hidden]),
+.trip-section:not([hidden]), .history-trip[open] .history-body,
+.bubble:not([hidden]), .chat-card {
+  animation: content-appear var(--motion-fast) ease;
+}
+
+@media (min-width: 1200px) {
+  .trip-panel { transition: opacity var(--motion-panel) ease, visibility 0s; }
+  .trip-collapsed .trip-panel { transition: opacity var(--motion-panel) ease, visibility 0s linear var(--motion-panel); }
+}
+@media (min-width: 651px) {
+  .sidebar-main { opacity: 1; transition: opacity var(--motion-panel) ease, display var(--motion-panel) allow-discrete; }
+  .chats-collapsed .sidebar-main { opacity: 0; pointer-events: none; }
+  @starting-style { .sidebar-main { opacity: 0; } }
+}
+@media (max-width: 1199px) {
+  .trip-panel { transition: transform var(--motion-panel) var(--motion-ease), visibility 0s linear var(--motion-panel); }
+  .trip-open .trip-panel { transition: transform var(--motion-panel) var(--motion-ease), visibility 0s; }
+}
+@media (max-width: 650px) {
+  .sidebar-main {
+    opacity: 0;
+    translate: -.6rem 0;
+    transition: opacity var(--motion-panel) ease, translate var(--motion-panel) var(--motion-ease),
+      display var(--motion-panel) allow-discrete;
+  }
+  .chats-open .sidebar-main { opacity: 1; translate: 0 0; }
+  @starting-style { .chats-open .sidebar-main { opacity: 0; translate: -.6rem 0; } }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after, dialog::backdrop {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  :where(button, summary, [role="button"]):active { scale: none !important; }
+}
